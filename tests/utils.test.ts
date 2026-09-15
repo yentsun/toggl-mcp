@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  entryOverlapSeconds,
   entrySeconds,
   filterEntriesByWorkspace,
   parseLocalYMD,
@@ -140,6 +141,37 @@ describe('filterEntriesByWorkspace', () => {
   });
 });
 
+describe('entryOverlapSeconds', () => {
+  const dayStart = Date.parse('2026-09-15T00:00:00.000Z');
+  const dayEnd = Date.parse('2026-09-15T23:59:59.999Z');
+
+  it('counts only the part of an entry inside the range', () => {
+    const crossing = entry({
+      start: '2026-09-14T23:00:00.000Z',
+      stop: '2026-09-15T01:00:00.000Z',
+      duration: 7200,
+    });
+    expect(entryOverlapSeconds(crossing, dayStart, dayEnd)).toBe(3600);
+  });
+
+  it('returns zero for an entry entirely outside the range', () => {
+    const outside = entry({
+      start: '2026-09-14T20:00:00.000Z',
+      stop: '2026-09-14T21:00:00.000Z',
+      duration: 3600,
+    });
+    expect(entryOverlapSeconds(outside, dayStart, dayEnd)).toBe(0);
+  });
+
+  it('caps a running entry at the range end and at now', () => {
+    const running = entry({ start: '2026-09-14T23:00:00.000Z', stop: null, duration: -1 });
+    const now = Date.parse('2026-09-15T10:00:00.000Z');
+    const rangeEnd = Date.parse('2026-09-15T12:00:00.000Z');
+
+    expect(entryOverlapSeconds(running, dayStart, rangeEnd, now)).toBe(36000);
+  });
+});
+
 describe('summarizeByProject', () => {
   it('aggregates by project, labels unassigned entries, and sorts by seconds', () => {
     const rows = summarizeByProject(
@@ -149,11 +181,40 @@ describe('summarizeByProject', () => {
         entry({ id: 3, project_id: null, duration: 600 }),
       ],
       new Map([[5, 'mono']]),
-      0
+      { nowMs: 0 }
     );
 
     expect(rows).toHaveLength(2);
     expect(rows[0]).toMatchObject({ project_id: 5, project_name: 'mono', seconds: 3600, hours: 1 });
     expect(rows[1]).toMatchObject({ project_id: null, project_name: 'No project', seconds: 600 });
+  });
+
+  it('clips entries to the range and drops non-overlapping ones', () => {
+    const rangeStartMs = Date.parse('2026-09-15T00:00:00.000Z');
+    const rangeEndMs = Date.parse('2026-09-15T23:59:59.999Z');
+
+    const rows = summarizeByProject(
+      [
+        entry({
+          id: 1,
+          project_id: 5,
+          start: '2026-09-14T23:00:00.000Z',
+          stop: '2026-09-15T01:00:00.000Z',
+          duration: 7200,
+        }),
+        entry({
+          id: 2,
+          project_id: 5,
+          start: '2026-09-14T20:00:00.000Z',
+          stop: '2026-09-14T21:00:00.000Z',
+          duration: 3600,
+        }),
+      ],
+      new Map([[5, 'mono']]),
+      { rangeStartMs, rangeEndMs, nowMs: rangeEndMs }
+    );
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ seconds: 3600, hours: 1, entries: 1 });
   });
 });

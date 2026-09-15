@@ -8,6 +8,7 @@ import { TogglAPI, TogglAPIError } from './toggl-api.js';
 import { WorkspaceResolutionError, parseWorkspaceId, resolveWorkspaceId } from './workspace.js';
 import {
   PERIODS,
+  entryOverlapSeconds,
   filterEntriesByWorkspace,
   rangeFromInput,
   roundHours,
@@ -15,6 +16,10 @@ import {
 } from './utils.js';
 
 const VERSION = '0.1.0';
+
+// Toggl filters /me/time_entries by start time, so a report looks back far enough to
+// catch entries that began before the requested range and overlap into it.
+const REPORT_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
 
 const argv = process.argv.slice(2);
 if (argv.includes('--version') || argv.includes('-v')) {
@@ -466,18 +471,29 @@ server.registerTool(
         start_date,
         end_date,
       });
-      const allEntries = await api.getTimeEntries({ start: range.start, end: range.end });
+      const rangeStartMs = range.start.getTime();
+      const rangeEndMs = range.end.getTime();
+
+      const allEntries = await api.getTimeEntries({
+        start: new Date(rangeStartMs - REPORT_LOOKBACK_MS),
+        end: range.end,
+      });
 
       const resolvedWorkspace = workspace_id ?? DEFAULT_WORKSPACE_ID;
       // The report is workspace-scoped; /me/time_entries returns every workspace.
-      const entries = filterEntriesByWorkspace(allEntries, resolvedWorkspace);
+      const scoped = filterEntriesByWorkspace(allEntries, resolvedWorkspace);
+      // Only entries that actually overlap the interval count (clipped to it below).
+      const entries = scoped.filter(
+        (entry) => entryOverlapSeconds(entry, rangeStartMs, rangeEndMs) > 0
+      );
+
       const projectNames = new Map<number, string>();
       if (resolvedWorkspace) {
         const projects = await api.getProjects(resolvedWorkspace);
         for (const project of projects) projectNames.set(project.id, project.name);
       }
 
-      const byProject = summarizeByProject(entries, projectNames);
+      const byProject = summarizeByProject(entries, projectNames, { rangeStartMs, rangeEndMs });
       const totalSeconds = byProject.reduce((sum, row) => sum + row.seconds, 0);
 
       return ok({

@@ -102,6 +102,18 @@ describe('TogglAPI', () => {
     expect(body.stop).toBe('2026-09-15T10:30:00.000Z');
   });
 
+  it('defaults start for a create even when only duration is provided', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ id: 1 }));
+    const api = new TogglAPI('secret');
+
+    await api.createTimeEntry(5, { duration: 3600 });
+
+    const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
+    expect(typeof body.start).toBe('string');
+    expect(body.duration).toBe(3600);
+    expect(body.workspace_id).toBe(5);
+  });
+
   it('updates an entry with PUT and omits an absent start', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ id: 7 }));
     const api = new TogglAPI('secret');

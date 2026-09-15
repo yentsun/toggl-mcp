@@ -141,12 +141,16 @@ export class TogglAPI {
     workspaceId: number,
     mode: 'create' | 'update'
   ): Record<string, unknown> {
+    // Toggl requires `start` on creation. Default it before deriving duration so a
+    // completed create like { duration: 3600 } does not go out without a start time.
+    const start = input.start ?? (mode === 'create' ? new Date().toISOString() : undefined);
+
     const body: Record<string, unknown> = {
       created_with: 'yt-toggl-mcp',
       workspace_id: workspaceId,
     };
 
-    if (input.start !== undefined) body.start = input.start;
+    if (start !== undefined) body.start = start;
     if (input.start_date !== undefined) body.start_date = input.start_date;
     if (input.description !== undefined) body.description = input.description;
     if (input.project_id !== undefined) body.project_id = input.project_id;
@@ -157,13 +161,11 @@ export class TogglAPI {
 
     if (input.duration !== undefined) {
       body.duration = input.duration;
-    } else if (typeof input.stop === 'string' && typeof input.start === 'string') {
-      const duration = Math.round((Date.parse(input.stop) - Date.parse(input.start)) / 1000);
+    } else if (typeof input.stop === 'string' && start !== undefined) {
+      const duration = Math.round((Date.parse(input.stop) - Date.parse(start)) / 1000);
       if (Number.isFinite(duration)) body.duration = duration;
     } else if (input.stop === undefined && mode === 'create') {
       // A new entry with no stop is a running timer: Toggl uses a negative timestamp.
-      const start = input.start ?? new Date().toISOString();
-      body.start = start;
       body.duration = -1 * Math.floor(Date.now() / 1000);
     }
 

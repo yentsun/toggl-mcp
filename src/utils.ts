@@ -106,6 +106,35 @@ export function filterEntriesByWorkspace(entries: TimeEntry[], workspaceId?: num
   return entries.filter((entry) => entry.workspace_id === workspaceId);
 }
 
+/**
+ * Seconds of an entry that fall inside [rangeStartMs, rangeEndMs].
+ * Running entries are capped at the range end and at now.
+ */
+export function entryOverlapSeconds(
+  entry: TimeEntry,
+  rangeStartMs: number,
+  rangeEndMs: number,
+  nowMs: number = Date.now()
+): number {
+  const startMs = Date.parse(entry.start);
+  if (Number.isNaN(startMs)) return 0;
+
+  const fallbackEndMs = Math.min(nowMs, rangeEndMs);
+  const parsedEndMs = entry.stop ? Date.parse(entry.stop) : fallbackEndMs;
+  const endMs = Number.isNaN(parsedEndMs) ? fallbackEndMs : parsedEndMs;
+
+  const overlapStart = Math.max(startMs, rangeStartMs);
+  const overlapEnd = Math.min(endMs, rangeEndMs);
+  return Math.max(0, Math.round((overlapEnd - overlapStart) / 1000));
+}
+
+export interface SummaryOptions {
+  /** With rangeEndMs, count only the part of each entry inside the interval. */
+  rangeStartMs?: number;
+  rangeEndMs?: number;
+  nowMs?: number;
+}
+
 export interface ProjectSummaryRow {
   project_id: number | null;
   project_name: string;
@@ -117,11 +146,19 @@ export interface ProjectSummaryRow {
 export function summarizeByProject(
   entries: TimeEntry[],
   projectNames: Map<number, string> = new Map(),
-  nowMs: number = Date.now()
+  options: SummaryOptions = {}
 ): ProjectSummaryRow[] {
+  const { rangeStartMs, rangeEndMs } = options;
+  const nowMs = options.nowMs ?? Date.now();
   const rows = new Map<string, ProjectSummaryRow>();
 
   for (const entry of entries) {
+    const seconds =
+      rangeStartMs !== undefined && rangeEndMs !== undefined
+        ? entryOverlapSeconds(entry, rangeStartMs, rangeEndMs, nowMs)
+        : entrySeconds(entry, nowMs);
+    if (seconds <= 0) continue;
+
     const key = entry.project_id === null ? 'none' : String(entry.project_id);
     const row =
       rows.get(key) ??
@@ -136,7 +173,7 @@ export function summarizeByProject(
         entries: 0,
       };
 
-    row.seconds += entrySeconds(entry, nowMs);
+    row.seconds += seconds;
     row.entries += 1;
     rows.set(key, row);
   }
