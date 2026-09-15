@@ -7,7 +7,7 @@ export class WorkspaceResolutionError extends Error {
 
   constructor(readonly availableWorkspaces: Workspace[]) {
     super(
-      'No workspace_id was provided, TOGGL_DEFAULT_WORKSPACE_ID is not set, and more than one workspace is accessible.'
+      'No workspace_id was provided, no default workspace is configured, and more than one workspace is accessible.'
     );
     this.name = 'WorkspaceResolutionError';
   }

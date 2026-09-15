@@ -3,6 +3,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { config } from 'dotenv';
 import { z } from 'zod';
+import { CredentialsError, credentialsPath, loadCredentials } from './credentials.js';
 import { maskEmail, publicWorkspaces } from './format.js';
 import { collectReportEntries } from './report.js';
 import { TogglAPI, TogglAPIError } from './toggl-api.js';
@@ -16,7 +17,7 @@ import {
   summarizeByProject,
 } from './utils.js';
 
-const VERSION = '0.2.0';
+const VERSION = '0.3.0';
 
 const argv = process.argv.slice(2);
 if (argv.includes('--version') || argv.includes('-v')) {
@@ -27,8 +28,11 @@ if (argv.includes('--help') || argv.includes('-h')) {
   console.error(
     `yt-toggl-mcp - Toggl Track MCP server\n\n` +
       `Usage: node dist/index.js [--help] [--version]\n\n` +
+      `Credentials (env vars win over the file):\n` +
+      `  ${credentialsPath()}\n` +
+      `    {"apiToken": "<toggl token>", "workspaceId": 1234567}\n\n` +
       `Environment:\n` +
-      `  TOGGL_API_KEY                Required Toggl Track API token\n` +
+      `  TOGGL_API_KEY                Toggl Track API token\n` +
       `  TOGGL_DEFAULT_WORKSPACE_ID   Optional default workspace id\n` +
       `  TOGGL_CACHE_TTL              Metadata cache TTL in ms (default: 3600000)\n`
   );
@@ -37,13 +41,16 @@ if (argv.includes('--help') || argv.includes('-h')) {
 
 config({ quiet: true });
 
-const API_KEY = (process.env.TOGGL_API_KEY ?? '').trim();
-if (!API_KEY) {
-  console.error('Missing required environment variable: TOGGL_API_KEY');
+let credentials;
+try {
+  credentials = loadCredentials();
+} catch (error) {
+  console.error(error instanceof CredentialsError ? error.message : String(error));
   process.exit(1);
 }
 
-const DEFAULT_WORKSPACE_ID = parseWorkspaceId(process.env.TOGGL_DEFAULT_WORKSPACE_ID);
+const API_KEY = credentials.apiToken;
+const DEFAULT_WORKSPACE_ID = parseWorkspaceId(credentials.defaultWorkspaceId);
 const parsedTtl = Number.parseInt(process.env.TOGGL_CACHE_TTL ?? '', 10);
 const CACHE_TTL_MS = Number.isFinite(parsedTtl) ? parsedTtl : 3_600_000;
 

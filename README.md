@@ -34,11 +34,26 @@ result carries `quota_remaining` and `quota_resets_in_seconds`.
 
 ## Configuration
 
+Credentials live in a per-tool file under your home directory, matching the other `yt-*` MCP
+servers. Environment variables take precedence, so the file is optional in CI or containers.
+
+`~/.yt-toggl-mcp/credentials.json`:
+
+```json
+{
+  "apiToken": "<your token>",
+  "workspaceId": 1234567
+}
+```
+
 | Variable | Required | Default | Purpose |
 | --- | --- | --- | --- |
-| `TOGGL_API_KEY` | yes | — | Toggl Track API token ([track.toggl.com/profile](https://track.toggl.com/profile)). |
-| `TOGGL_DEFAULT_WORKSPACE_ID` | no | auto if a single workspace | Default workspace for workspace-scoped tools. |
+| `TOGGL_API_KEY` | no | `apiToken` from the credentials file | Toggl Track API token ([track.toggl.com/profile](https://track.toggl.com/profile)). |
+| `TOGGL_DEFAULT_WORKSPACE_ID` | no | `workspaceId` from the credentials file, else auto if a single workspace | Default workspace for workspace-scoped tools. |
 | `TOGGL_CACHE_TTL` | no | `3600000` | Metadata cache TTL in ms. |
+
+A token must come from one of the two sources, otherwise the server exits with a message naming
+the file to create. `workspaceId` is optional — omit it if you only have one workspace.
 
 ## Install
 
@@ -47,62 +62,44 @@ result carries `quota_remaining` and `quota_resets_in_seconds`.
 Prerequisites: Node.js `>=20.19.0` and a Toggl Track API token from
 [track.toggl.com/profile](https://track.toggl.com/profile) (scroll to the bottom → "Click to reveal").
 
-**1. Build the server**
+**1. Create the credentials file**
 
-```bash
-git clone https://github.com/yentsun/toggl-mcp.git
-cd toggl-mcp
-npm ci
-npm run build
+Write `~/.yt-toggl-mcp/credentials.json` (Windows: `C:\Users\<you>\.yt-toggl-mcp\credentials.json`):
+
+```json
+{
+  "apiToken": "<your token>",
+  "workspaceId": 1234567
+}
 ```
 
-**2. Put the token in the environment**
+`workspaceId` is optional. Alternatively set `TOGGL_API_KEY` (and optionally
+`TOGGL_DEFAULT_WORKSPACE_ID`) in the environment — env vars win over the file.
 
-The config below reads it via `{env:TOGGL_API_KEY}`, so the token never lives in the config file.
-
-Windows (persists for new processes — restart your terminal afterwards):
-
-```powershell
-[Environment]::SetEnvironmentVariable('TOGGL_API_KEY', '<your token>', 'User')
-[Environment]::SetEnvironmentVariable('TOGGL_DEFAULT_WORKSPACE_ID', '<workspace id>', 'User')
-```
-
-macOS / Linux (`~/.zshrc`, `~/.bashrc`, …):
-
-```bash
-export TOGGL_API_KEY='<your token>'
-export TOGGL_DEFAULT_WORKSPACE_ID='<workspace id>'
-```
-
-**3. Register the server**
+**2. Register the server**
 
 Add this to `~/.config/opencode/opencode.jsonc` (Windows:
-`C:\Users\<you>\.config\opencode\opencode.jsonc`) under the existing `mcp` key, pointing `command` at
-the built entry point:
+`C:\Users\<you>\.config\opencode\opencode.jsonc`) under the existing `mcp` key:
 
 ```jsonc
 {
   "mcp": {
-    "toggl": {
+    "yt-toggl-mcp": {
       "type": "local",
-      "command": ["node", "/abs/path/to/toggl-mcp/dist/index.js"],
-      "environment": {
-        "TOGGL_API_KEY": "{env:TOGGL_API_KEY}",
-        "TOGGL_DEFAULT_WORKSPACE_ID": "{env:TOGGL_DEFAULT_WORKSPACE_ID}"
-      }
+      "command": ["npx", "-y", "yt-toggl-mcp"]
     }
   }
 }
 ```
 
-On Windows the path looks like `F:/Projects/personal/toggl-mcp/dist/index.js` (forward slashes are
-fine). `TOGGL_DEFAULT_WORKSPACE_ID` is optional — omit it if you only have one workspace.
+No `environment` block is needed: the server reads its own credentials file, like `yt-gmail-mcp`
+and `yt-zoho-mcp`.
 
-**4. Restart opencode**
+**3. Restart opencode**
 
 Config is read once at startup and is not hot-reloaded, so the server only loads after a restart.
 
-**5. Verify**
+**4. Verify**
 
 Ask opencode to call `toggl_check_auth`. It should return your (masked) account and workspace list.
 A quick win after that: ask "what am I currently tracking?".
