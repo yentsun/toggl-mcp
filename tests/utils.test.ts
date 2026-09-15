@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   entrySeconds,
+  filterEntriesByWorkspace,
   parseLocalYMD,
   periodRange,
   rangeFromInput,
@@ -124,6 +125,18 @@ describe('roundHours', () => {
   it('rounds to two decimals', () => {
     expect(roundHours(5400)).toBe(1.5);
     expect(roundHours(1000)).toBe(0.28);
+  });
+});
+
+describe('filterEntriesByWorkspace', () => {
+  it('keeps only entries from the selected workspace', () => {
+    const entries = [entry({ id: 1, workspace_id: 10 }), entry({ id: 2, workspace_id: 20 })];
+    expect(filterEntriesByWorkspace(entries, 10).map((e) => e.id)).toEqual([1]);
+  });
+
+  it('is a no-op when no workspace is selected', () => {
+    const entries = [entry({ id: 1, workspace_id: 10 }), entry({ id: 2, workspace_id: 20 })];
+    expect(filterEntriesByWorkspace(entries, undefined)).toHaveLength(2);
   });
 });
 

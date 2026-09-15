@@ -6,7 +6,13 @@ import { z } from 'zod';
 import { maskEmail, publicWorkspaces } from './format.js';
 import { TogglAPI, TogglAPIError } from './toggl-api.js';
 import { WorkspaceResolutionError, parseWorkspaceId, resolveWorkspaceId } from './workspace.js';
-import { PERIODS, rangeFromInput, roundHours, summarizeByProject } from './utils.js';
+import {
+  PERIODS,
+  filterEntriesByWorkspace,
+  rangeFromInput,
+  roundHours,
+  summarizeByProject,
+} from './utils.js';
 
 const VERSION = '0.1.0';
 
@@ -70,7 +76,8 @@ function fail(error: unknown): ToolResult {
   }
   if (error instanceof WorkspaceResolutionError) {
     payload.code = error.code;
-    payload.available_workspaces = error.availableWorkspaces;
+    // Belt-and-braces: workspace payloads carry a workspace api_token.
+    payload.available_workspaces = publicWorkspaces(error.availableWorkspaces);
   }
 
   return { isError: true, ...ok(payload) };
@@ -374,6 +381,9 @@ server.registerTool(
         if (!current) return ok({ stopped: false, reason: 'No timer is running.' });
         targetId = current.id;
         targetWorkspace = targetWorkspace ?? current.workspace_id;
+      } else if (targetWorkspace === undefined) {
+        // Resolve the workspace that actually owns the entry, not the default.
+        targetWorkspace = (await api.getTimeEntry(targetId)).workspace_id;
       }
 
       const resolved = await resolveWorkspaceId(api, targetWorkspace, DEFAULT_WORKSPACE_ID);
@@ -456,9 +466,11 @@ server.registerTool(
         start_date,
         end_date,
       });
-      const entries = await api.getTimeEntries({ start: range.start, end: range.end });
+      const allEntries = await api.getTimeEntries({ start: range.start, end: range.end });
 
       const resolvedWorkspace = workspace_id ?? DEFAULT_WORKSPACE_ID;
+      // The report is workspace-scoped; /me/time_entries returns every workspace.
+      const entries = filterEntriesByWorkspace(allEntries, resolvedWorkspace);
       const projectNames = new Map<number, string>();
       if (resolvedWorkspace) {
         const projects = await api.getProjects(resolvedWorkspace);

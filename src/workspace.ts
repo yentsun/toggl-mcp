@@ -1,3 +1,4 @@
+import { publicWorkspaces } from './format.js';
 import type { TogglAPI } from './toggl-api.js';
 import type { Workspace } from './types.js';
 
@@ -38,5 +39,6 @@ export async function resolveWorkspaceId(
   const workspaces = await api.getWorkspaces();
   if (workspaces.length === 1) return workspaces[0]!.id;
 
-  throw new WorkspaceResolutionError(workspaces);
+  // Never carry raw payloads: /workspaces responses include a workspace api_token.
+  throw new WorkspaceResolutionError(publicWorkspaces(workspaces));
 }

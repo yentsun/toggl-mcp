@@ -100,6 +100,12 @@ export function roundHours(seconds: number): number {
   return Math.round((seconds / 3600) * 100) / 100;
 }
 
+/** Keep only entries belonging to the given workspace (no-op when none is selected). */
+export function filterEntriesByWorkspace(entries: TimeEntry[], workspaceId?: number): TimeEntry[] {
+  if (!workspaceId) return entries;
+  return entries.filter((entry) => entry.workspace_id === workspaceId);
+}
+
 export interface ProjectSummaryRow {
   project_id: number | null;
   project_name: string;

@@ -45,6 +45,22 @@ describe('resolveWorkspaceId', () => {
     await expect(resolveWorkspaceId(api)).resolves.toBe(5);
   });
 
+  it('never exposes workspace credentials in the resolution error', async () => {
+    const leaked = [
+      { id: 1, name: 'a', api_token: 'secret-a' },
+      { id: 2, name: 'b', api_token: 'secret-b' },
+    ] as unknown as Workspace[];
+    const api = fakeApi(leaked);
+
+    const error = await resolveWorkspaceId(api).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(WorkspaceResolutionError);
+    expect((error as WorkspaceResolutionError).availableWorkspaces).toEqual([
+      { id: 1, name: 'a' },
+      { id: 2, name: 'b' },
+    ]);
+  });
+
   it('throws with available workspaces when ambiguous', async () => {
     const workspaces = [
       { id: 1, name: 'a' },
