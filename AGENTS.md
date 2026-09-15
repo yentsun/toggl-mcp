@@ -17,6 +17,7 @@ src/
 ├── toggl-api.ts  # TogglAPI HTTP client; TogglAPIError; auth + retries-free error mapping
 ├── workspace.ts  # parseWorkspaceId / resolveWorkspaceId; WorkspaceResolutionError
 ├── format.ts     # maskEmail / publicWorkspaces (credential redaction)
+├── report.ts     # collectReportEntries: backward overlap scan for toggl_report
 ├── cache.ts      # TtlCache
 ├── utils.ts      # periods, date parsing, entry durations, project summarization
 └── types.ts      # shared interfaces
