@@ -3,7 +3,8 @@
 A small, self-hosted [MCP](https://modelcontextprotocol.io) server for **Toggl Track (API v9)**.
 It runs over stdio and exposes time tracking, projects/clients, and reporting to any MCP client.
 
-No telemetry. The only network egress is to `api.track.toggl.com`.
+No telemetry. The only network egress is to `api.track.toggl.com`. Workspace-level tokens are
+stripped from every response and user emails are masked.
 
 ## Tools
 
@@ -32,6 +33,11 @@ seconds and, per Toggl, also returns entries deleted since that time.
 Toggl enforces a sliding-window request quota per user per organization; on `402` the error
 result carries `quota_remaining` and `quota_resets_in_seconds`.
 
+`toggl_report` clips every entry to the requested range, so an entry crossing a boundary is neither
+double-counted nor dropped. It scans backward in 84-day windows and respects Toggl's historical
+retention boundary: if it reaches that boundary it returns `incomplete: true` together with
+`incomplete_reason`, rather than reporting a silently short total. Any other error is propagated.
+
 ## Configuration
 
 Credentials live in a per-tool file under your home directory, matching the other `yt-*` MCP
@@ -57,10 +63,32 @@ the file to create. `workspaceId` is optional — omit it if you only have one w
 
 ## Install
 
-### opencode
-
 Prerequisites: Node.js `>=20.19.0` and a Toggl Track API token from
 [track.toggl.com/profile](https://track.toggl.com/profile) (scroll to the bottom → "Click to reveal").
+
+### npm
+
+```bash
+npx -y yt-toggl-mcp
+```
+
+Any MCP client that speaks stdio works. Generic client config:
+
+```json
+{
+  "mcpServers": {
+    "yt-toggl-mcp": {
+      "command": "npx",
+      "args": ["-y", "yt-toggl-mcp"]
+    }
+  }
+}
+```
+
+`yt-toggl-mcp --help` prints the credential path and the environment variables; `--version` prints
+the version. Both write to stderr, since stdout carries the MCP protocol.
+
+### opencode
 
 **1. Create the credentials file**
 
@@ -114,6 +142,9 @@ npm test
 ```
 
 `npm test` runs the Vitest suite with HTTP mocked, so no token or live calls are needed.
+
+`node dist/index.js` runs the built server locally — it reads the same credentials file described
+above. `npm run dev` watches the source with `tsx` instead of building.
 
 ## License
 
