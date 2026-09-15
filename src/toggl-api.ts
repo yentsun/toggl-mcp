@@ -14,7 +14,7 @@ import type {
 } from './types.js';
 
 export const API_BASE_URL = 'https://api.track.toggl.com/api/v9';
-const USER_AGENT = 'yt-toggl-mcp/0.1.0';
+const USER_AGENT = 'yt-toggl-mcp/0.2.0';
 const DEFAULT_CACHE_TTL_MS = 3_600_000;
 
 export class TogglAPIError extends Error {

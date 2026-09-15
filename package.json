@@ -1,6 +1,6 @@
 {
   "name": "yt-toggl-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Self-hosted MCP server for Toggl Track (API v9)",
   "main": "dist/index.js",
   "type": "module",
@@ -35,6 +35,11 @@
   "engines": {
     "node": ">=20.19.0"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
     "dotenv": "^17.4.2",
