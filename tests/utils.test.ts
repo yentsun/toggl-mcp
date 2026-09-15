@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  entryEndMs,
   entryOverlapSeconds,
   entrySeconds,
   filterEntriesByWorkspace,
@@ -7,6 +8,7 @@ import {
   parseLocalYMD,
   periodRange,
   rangeFromInput,
+  reachesPast,
   roundHours,
   summarizeByProject,
 } from '../src/utils.js';
@@ -139,6 +141,66 @@ describe('roundHours', () => {
   it('rounds to two decimals', () => {
     expect(roundHours(5400)).toBe(1.5);
     expect(roundHours(1000)).toBe(0.28);
+  });
+});
+
+describe('entryEndMs / reachesPast', () => {
+  it('uses the stop time, or now for a running entry', () => {
+    expect(entryEndMs(entry({ stop: '2026-09-15T01:00:00.000Z' }))).toBe(
+      Date.parse('2026-09-15T01:00:00.000Z')
+    );
+    expect(entryEndMs(entry({ stop: null }), 1234)).toBe(1234);
+  });
+
+  it('detects whether any entry reaches past the range start', () => {
+    const rangeStartMs = Date.parse('2026-09-14T00:00:00.000Z');
+    const older = entry({ start: '2026-08-01T00:00:00.000Z', stop: '2026-08-02T00:00:00.000Z' });
+    const longEntry = entry({
+      start: '2026-09-01T00:00:00.000Z',
+      stop: '2026-09-15T00:00:00.000Z',
+    });
+
+    expect(reachesPast([older], rangeStartMs)).toBe(false);
+    expect(reachesPast([older, longEntry], rangeStartMs)).toBe(true);
+    expect(reachesPast([], rangeStartMs)).toBe(false);
+  });
+});
+
+describe('long entries in reports', () => {
+  it('contributes the same hours whether still running or stopped', () => {
+    const rangeStartMs = Date.parse('2026-09-14T00:00:00.000Z');
+    const rangeEndMs = Date.parse('2026-09-14T23:59:59.999Z');
+    const nowMs = Date.parse('2026-09-15T10:00:00.000Z');
+
+    const running = entry({
+      id: 1,
+      start: '2026-09-01T00:00:00.000Z',
+      stop: null,
+      duration: -1,
+    });
+    const stopped = entry({
+      id: 1,
+      start: '2026-09-01T00:00:00.000Z',
+      stop: '2026-09-15T00:00:00.000Z',
+      duration: 1209600,
+    });
+
+    expect(entryOverlapSeconds(running, rangeStartMs, rangeEndMs, nowMs)).toBe(86400);
+    expect(entryOverlapSeconds(stopped, rangeStartMs, rangeEndMs, nowMs)).toBe(86400);
+
+    const fromRunning = summarizeByProject([running], new Map(), {
+      rangeStartMs,
+      rangeEndMs,
+      nowMs,
+    });
+    const fromStopped = summarizeByProject([stopped], new Map(), {
+      rangeStartMs,
+      rangeEndMs,
+      nowMs,
+    });
+
+    expect(fromRunning[0]!.seconds).toBe(fromStopped[0]!.seconds);
+    expect(fromRunning[0]!.hours).toBe(24);
   });
 });
 

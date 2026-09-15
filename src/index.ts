@@ -5,6 +5,7 @@ import { config } from 'dotenv';
 import { z } from 'zod';
 import { maskEmail, publicWorkspaces } from './format.js';
 import { TogglAPI, TogglAPIError } from './toggl-api.js';
+import type { TimeEntry } from './types.js';
 import { WorkspaceResolutionError, parseWorkspaceId, resolveWorkspaceId } from './workspace.js';
 import {
   PERIODS,
@@ -12,15 +13,17 @@ import {
   filterEntriesByWorkspace,
   mergeEntriesById,
   rangeFromInput,
+  reachesPast,
   roundHours,
   summarizeByProject,
 } from './utils.js';
 
 const VERSION = '0.1.0';
 
-// Toggl filters /me/time_entries by start time, so a report looks back far enough to
-// catch entries that began before the requested range and overlap into it.
-const REPORT_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
+// Toggl filters /me/time_entries by start time and rejects spans beyond ~90 days, so a report
+// walks backwards in windows until a whole window sits before the range with nothing reaching it.
+const REPORT_WINDOW_MS = 84 * 24 * 60 * 60 * 1000;
+const MAX_REPORT_WINDOWS = 12;
 
 const argv = process.argv.slice(2);
 if (argv.includes('--version') || argv.includes('-v')) {
@@ -475,18 +478,45 @@ server.registerTool(
       const rangeStartMs = range.start.getTime();
       const rangeEndMs = range.end.getTime();
 
-      // The lookback catches entries that *started* before the range; the running
-      // entry is fetched separately so a timer older than the lookback still counts.
-      const [windowed, running] = await Promise.all([
-        api.getTimeEntries({ start: new Date(rangeStartMs - REPORT_LOOKBACK_MS), end: range.end }),
-        api.getCurrentTimeEntry(),
-      ]);
+      // Entries that start inside the range, plus the running entry (which may have
+      // started long before it and is not returned by the start-time filter).
+      const inRange = await api.getTimeEntries({ start: range.start, end: range.end });
+      const running = await api.getCurrentTimeEntry();
+      const collected = mergeEntriesById(inRange, running);
+      const seen = new Set(collected.map((entry) => entry.id));
 
-      const allEntries = mergeEntriesById(windowed, running);
+      // Walk backwards to catch completed entries that started earlier and overlap.
+      // No fixed maximum duration is assumed: the scan stops only once a whole window
+      // lies before the range and nothing in it reaches past the range start. The API
+      // rejects spans beyond ~90 days, so windows stay under that.
+      let windowEndMs = rangeStartMs;
+      for (let window = 0; window < MAX_REPORT_WINDOWS; window++) {
+        const windowStartMs = windowEndMs - REPORT_WINDOW_MS;
+        let batch: TimeEntry[] = [];
+        try {
+          batch = await api.getTimeEntries({
+            start: new Date(windowStartMs),
+            end: new Date(windowEndMs),
+          });
+        } catch (error) {
+          // Toggl serves roughly the last 3 months of /me/time_entries; below that
+          // floor the scan simply stops — the report keeps everything already collected.
+          if (error instanceof TogglAPIError && error.status === 400) break;
+          throw error;
+        }
+        for (const entry of batch) {
+          if (!seen.has(entry.id)) {
+            seen.add(entry.id);
+            collected.push(entry);
+          }
+        }
+        if (!reachesPast(batch, rangeStartMs)) break;
+        windowEndMs = windowStartMs;
+      }
 
       const resolvedWorkspace = workspace_id ?? DEFAULT_WORKSPACE_ID;
       // The report is workspace-scoped; /me/time_entries returns every workspace.
-      const scoped = filterEntriesByWorkspace(allEntries, resolvedWorkspace);
+      const scoped = filterEntriesByWorkspace(collected, resolvedWorkspace);
       // Only entries that actually overlap the interval count (clipped to it below).
       const entries = scoped.filter(
         (entry) => entryOverlapSeconds(entry, rangeStartMs, rangeEndMs) > 0

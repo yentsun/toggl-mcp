@@ -115,6 +115,27 @@ export function roundHours(seconds: number): number {
   return Math.round((seconds / 3600) * 100) / 100;
 }
 
+/** End of an entry in ms: its stop, or `now` while it is still running. */
+export function entryEndMs(entry: TimeEntry, nowMs: number = Date.now()): number {
+  if (entry.stop) {
+    const parsed = Date.parse(entry.stop);
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+  return nowMs;
+}
+
+/**
+ * Whether any entry could reach into a range that starts at `rangeStartMs`.
+ * Used to decide when a backward scan has walked past every possible overlap.
+ */
+export function reachesPast(
+  entries: TimeEntry[],
+  rangeStartMs: number,
+  nowMs: number = Date.now()
+): boolean {
+  return entries.some((entry) => entryEndMs(entry, nowMs) > rangeStartMs);
+}
+
 /** Merge an extra entry (e.g. the running timer) into a list, de-duplicated by id. */
 export function mergeEntriesById(entries: TimeEntry[], extra?: TimeEntry | null): TimeEntry[] {
   const byId = new Map<number, TimeEntry>();
