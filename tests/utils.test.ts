@@ -3,6 +3,7 @@ import {
   entryOverlapSeconds,
   entrySeconds,
   filterEntriesByWorkspace,
+  mergeEntriesById,
   parseLocalYMD,
   periodRange,
   rangeFromInput,
@@ -39,6 +40,18 @@ describe('parseLocalYMD', () => {
 
   it('rejects malformed input', () => {
     expect(() => parseLocalYMD('15/09/2026')).toThrow();
+  });
+
+  it('rejects calendar dates that would otherwise roll over', () => {
+    expect(() => parseLocalYMD('2026-02-30')).toThrow(/Invalid calendar date/);
+    expect(() => parseLocalYMD('2026-04-31')).toThrow(/Invalid calendar date/);
+    expect(() => parseLocalYMD('2026-13-01')).toThrow(/Invalid calendar date/);
+    expect(() => parseLocalYMD('2026-00-10')).toThrow(/Invalid calendar date/);
+  });
+
+  it('accepts month ends and leap days', () => {
+    expect(parseLocalYMD('2026-02-28').getDate()).toBe(28);
+    expect(parseLocalYMD('2024-02-29').getDate()).toBe(29);
   });
 });
 
@@ -126,6 +139,22 @@ describe('roundHours', () => {
   it('rounds to two decimals', () => {
     expect(roundHours(5400)).toBe(1.5);
     expect(roundHours(1000)).toBe(0.28);
+  });
+});
+
+describe('mergeEntriesById', () => {
+  it('adds the running entry and de-duplicates by id', () => {
+    const windowed = [entry({ id: 1, duration: 60 }), entry({ id: 2, duration: 120 })];
+    const running = entry({ id: 3, duration: -1, stop: null });
+
+    expect(mergeEntriesById(windowed, running).map((e) => e.id)).toEqual([1, 2, 3]);
+
+    const duplicate = entry({ id: 1, duration: 999 });
+    expect(mergeEntriesById(windowed, duplicate).find((e) => e.id === 1)?.duration).toBe(999);
+  });
+
+  it('tolerates the absence of a running entry', () => {
+    expect(mergeEntriesById([entry({ id: 1 })], null)).toHaveLength(1);
   });
 });
 

@@ -10,6 +10,7 @@ import {
   PERIODS,
   entryOverlapSeconds,
   filterEntriesByWorkspace,
+  mergeEntriesById,
   rangeFromInput,
   roundHours,
   summarizeByProject,
@@ -474,10 +475,14 @@ server.registerTool(
       const rangeStartMs = range.start.getTime();
       const rangeEndMs = range.end.getTime();
 
-      const allEntries = await api.getTimeEntries({
-        start: new Date(rangeStartMs - REPORT_LOOKBACK_MS),
-        end: range.end,
-      });
+      // The lookback catches entries that *started* before the range; the running
+      // entry is fetched separately so a timer older than the lookback still counts.
+      const [windowed, running] = await Promise.all([
+        api.getTimeEntries({ start: new Date(rangeStartMs - REPORT_LOOKBACK_MS), end: range.end }),
+        api.getCurrentTimeEntry(),
+      ]);
+
+      const allEntries = mergeEntriesById(windowed, running);
 
       const resolvedWorkspace = workspace_id ?? DEFAULT_WORKSPACE_ID;
       // The report is workspace-scoped; /me/time_entries returns every workspace.

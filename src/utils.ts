@@ -69,8 +69,23 @@ export function periodRange(period: Period, now: Date = new Date()): DateRange {
 export function parseLocalYMD(value: string): Date {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
   if (!match) throw new Error(`Invalid date "${value}" (expected YYYY-MM-DD)`);
-  const [, year, month, day] = match;
-  return new Date(Number(year), Number(month) - 1, Number(day));
+
+  const [, yearText, monthText, dayText] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const date = new Date(year, month - 1, day);
+
+  // new Date() rolls invalid values over (2026-02-30 -> 2026-03-02), so round-trip.
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    throw new Error(`Invalid calendar date "${value}"`);
+  }
+
+  return date;
 }
 
 export interface RangeInput {
@@ -98,6 +113,14 @@ export function entrySeconds(entry: TimeEntry, nowMs: number = Date.now()): numb
 
 export function roundHours(seconds: number): number {
   return Math.round((seconds / 3600) * 100) / 100;
+}
+
+/** Merge an extra entry (e.g. the running timer) into a list, de-duplicated by id. */
+export function mergeEntriesById(entries: TimeEntry[], extra?: TimeEntry | null): TimeEntry[] {
+  const byId = new Map<number, TimeEntry>();
+  for (const entry of entries) byId.set(entry.id, entry);
+  if (extra) byId.set(extra.id, extra);
+  return [...byId.values()];
 }
 
 /** Keep only entries belonging to the given workspace (no-op when none is selected). */
