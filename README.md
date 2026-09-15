@@ -70,4 +70,4 @@ npm test
 
 ## License
 
-MIT.
+MIT © yentsun — see [LICENSE](LICENSE).
