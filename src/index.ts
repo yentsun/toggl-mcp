@@ -64,9 +64,9 @@ function fail(error: unknown): ToolResult {
   if (error instanceof TogglAPIError) {
     payload.code = error.code;
     payload.status = error.status;
-    if (error.retryAfterSeconds !== undefined) {
-      payload.retry_after_seconds = error.retryAfterSeconds;
-    }
+    if (error.retryAfterSeconds !== undefined) payload.retry_after_seconds = error.retryAfterSeconds;
+    if (error.quotaRemaining !== undefined) payload.quota_remaining = error.quotaRemaining;
+    if (error.quotaResetsIn !== undefined) payload.quota_resets_in_seconds = error.quotaResetsIn;
   }
   if (error instanceof WorkspaceResolutionError) {
     payload.code = error.code;
@@ -77,6 +77,8 @@ function fail(error: unknown): ToolResult {
 }
 
 const periodSchema = z.enum(PERIODS as unknown as [string, ...string[]]);
+const workspaceIdSchema = z.number().int().positive().optional();
+const timeEntryIdSchema = z.number().int().positive();
 
 server.registerTool(
   'toggl_check_auth',
@@ -94,6 +96,23 @@ server.registerTool(
         user: { id: me.id, fullname: me.fullname, email: maskEmail(me.email) },
         workspaces: publicWorkspaces(workspaces),
       });
+    } catch (error) {
+      return fail(error);
+    }
+  }
+);
+
+server.registerTool(
+  'toggl_get_quota',
+  {
+    title: 'Get API quota',
+    description:
+      'Remaining Toggl API requests and reset time per organization (slugging-window quota).',
+    inputSchema: {},
+  },
+  async () => {
+    try {
+      return ok(await api.getQuota());
     } catch (error) {
       return fail(error);
     }
@@ -128,8 +147,27 @@ server.registerTool(
     try {
       const entry = await api.getCurrentTimeEntry();
       if (!entry) return ok({ running: false });
-      const elapsed = Math.max(0, Math.round((Date.now() - new Date(entry.start).getTime()) / 1000));
+      const elapsed = Math.max(
+        0,
+        Math.round((Date.now() - new Date(entry.start).getTime()) / 1000)
+      );
       return ok({ running: true, entry, elapsed_seconds: elapsed });
+    } catch (error) {
+      return fail(error);
+    }
+  }
+);
+
+server.registerTool(
+  'toggl_get_time_entry',
+  {
+    title: 'Get a time entry',
+    description: 'Load a single time entry by id.',
+    inputSchema: { time_entry_id: timeEntryIdSchema },
+  },
+  async ({ time_entry_id }) => {
+    try {
+      return ok(await api.getTimeEntry(time_entry_id));
     } catch (error) {
       return fail(error);
     }
@@ -141,32 +179,150 @@ server.registerTool(
   {
     title: 'Get time entries',
     description:
-      'List time entries for a named period or an explicit start_date/end_date range (YYYY-MM-DD, inclusive).',
+      'List time entries for a named period, an inclusive start_date/end_date range, or with since (unix seconds) / before (YYYY-MM-DD or RFC3339).',
     inputSchema: {
       period: periodSchema.optional(),
       start_date: z.string().optional(),
       end_date: z.string().optional(),
+      since: z.number().int().optional(),
+      before: z.string().optional(),
+      meta: z.boolean().optional(),
     },
   },
-  async ({ period, start_date, end_date }) => {
+  async ({ period, start_date, end_date, since, before, meta }) => {
     try {
+      if (since !== undefined || before !== undefined) {
+        const entries = await api.getTimeEntries({ since, before, meta });
+        return ok({ count: entries.length, entries });
+      }
+
       const range = rangeFromInput({
         period: period as (typeof PERIODS)[number] | undefined,
         start_date,
         end_date,
       });
-      const entries = await api.getTimeEntries(range.start, range.end);
-      const totalSeconds = entries.reduce((sum, entry) => {
-        const duration = entry.duration >= 0 ? entry.duration : 0;
-        return sum + duration;
-      }, 0);
+      const entries = await api.getTimeEntries({ start: range.start, end: range.end, meta });
+      const completedSeconds = entries.reduce(
+        (sum, entry) => sum + (entry.duration >= 0 ? entry.duration : 0),
+        0
+      );
       return ok({
         start: range.start.toISOString(),
         end: range.end.toISOString(),
         count: entries.length,
-        completed_seconds: totalSeconds,
+        completed_seconds: completedSeconds,
         entries,
       });
+    } catch (error) {
+      return fail(error);
+    }
+  }
+);
+
+server.registerTool(
+  'toggl_create_time_entry',
+  {
+    title: 'Create a time entry',
+    description:
+      'Create a completed or running time entry. Provide stop (or duration) for a completed entry; omit both to start a running timer.',
+    inputSchema: {
+      description: z.string().optional(),
+      project_id: z.number().int().positive().optional(),
+      task_id: z.number().int().positive().optional(),
+      workspace_id: workspaceIdSchema,
+      tags: z.array(z.string()).optional(),
+      billable: z.boolean().optional(),
+      start: z.string().optional(),
+      stop: z.string().optional(),
+      duration: z.number().int().optional(),
+    },
+  },
+  async ({ description, project_id, task_id, workspace_id, tags, billable, start, stop, duration }) => {
+    try {
+      const resolved = await resolveWorkspaceId(api, workspace_id, DEFAULT_WORKSPACE_ID);
+      const entry = await api.createTimeEntry(resolved, {
+        description,
+        project_id,
+        task_id,
+        tags,
+        billable,
+        start,
+        stop,
+        duration,
+      });
+      return ok({ created: true, entry });
+    } catch (error) {
+      return fail(error);
+    }
+  }
+);
+
+server.registerTool(
+  'toggl_update_time_entry',
+  {
+    title: 'Update a time entry',
+    description:
+      'Edit an existing time entry (description, project, task, tags, billable, start, stop or duration). Only the fields you pass are changed.',
+    inputSchema: {
+      time_entry_id: timeEntryIdSchema,
+      workspace_id: workspaceIdSchema,
+      description: z.string().optional(),
+      project_id: z.number().int().positive().optional(),
+      task_id: z.number().int().positive().optional(),
+      tags: z.array(z.string()).optional(),
+      billable: z.boolean().optional(),
+      start: z.string().optional(),
+      stop: z.string().optional(),
+      duration: z.number().int().optional(),
+    },
+  },
+  async ({
+    time_entry_id,
+    workspace_id,
+    description,
+    project_id,
+    task_id,
+    tags,
+    billable,
+    start,
+    stop,
+    duration,
+  }) => {
+    try {
+      const resolved =
+        workspace_id ?? (await api.getTimeEntry(time_entry_id)).workspace_id;
+      const entry = await api.updateTimeEntry(resolved, time_entry_id, {
+        description,
+        project_id,
+        task_id,
+        tags,
+        billable,
+        start,
+        stop,
+        duration,
+      });
+      return ok({ updated: true, entry });
+    } catch (error) {
+      return fail(error);
+    }
+  }
+);
+
+server.registerTool(
+  'toggl_delete_time_entry',
+  {
+    title: 'Delete a time entry',
+    description: 'Permanently delete a time entry by id.',
+    inputSchema: {
+      time_entry_id: timeEntryIdSchema,
+      workspace_id: workspaceIdSchema,
+    },
+  },
+  async ({ time_entry_id, workspace_id }) => {
+    try {
+      const resolved = workspace_id ?? (await api.getTimeEntry(time_entry_id)).workspace_id;
+      await api.deleteTimeEntry(resolved, time_entry_id);
+      return ok({ deleted: true, time_entry_id });
     } catch (error) {
       return fail(error);
     }
@@ -181,7 +337,7 @@ server.registerTool(
     inputSchema: {
       description: z.string().optional(),
       project_id: z.number().int().positive().optional(),
-      workspace_id: z.number().int().positive().optional(),
+      workspace_id: workspaceIdSchema,
       tags: z.array(z.string()).optional(),
       billable: z.boolean().optional(),
     },
@@ -189,12 +345,7 @@ server.registerTool(
   async ({ description, project_id, workspace_id, tags, billable }) => {
     try {
       const resolved = await resolveWorkspaceId(api, workspace_id, DEFAULT_WORKSPACE_ID);
-      const entry = await api.startTimeEntry(resolved, {
-        description,
-        project_id,
-        tags,
-        billable,
-      });
+      const entry = await api.startTimeEntry(resolved, { description, project_id, tags, billable });
       return ok({ started: true, entry });
     } catch (error) {
       return fail(error);
@@ -210,7 +361,7 @@ server.registerTool(
       'Stop the running time entry. Defaults to the currently running entry; pass entry_id to stop a specific one.',
     inputSchema: {
       entry_id: z.number().int().positive().optional(),
-      workspace_id: z.number().int().positive().optional(),
+      workspace_id: workspaceIdSchema,
     },
   },
   async ({ entry_id, workspace_id }) => {
@@ -239,9 +390,7 @@ server.registerTool(
   {
     title: 'List projects',
     description: 'List projects in a workspace (defaults to TOGGL_DEFAULT_WORKSPACE_ID).',
-    inputSchema: {
-      workspace_id: z.number().int().positive().optional(),
-    },
+    inputSchema: { workspace_id: workspaceIdSchema },
   },
   async ({ workspace_id }) => {
     try {
@@ -258,14 +407,29 @@ server.registerTool(
   {
     title: 'List clients',
     description: 'List clients in a workspace (defaults to TOGGL_DEFAULT_WORKSPACE_ID).',
-    inputSchema: {
-      workspace_id: z.number().int().positive().optional(),
-    },
+    inputSchema: { workspace_id: workspaceIdSchema },
   },
   async ({ workspace_id }) => {
     try {
       const resolved = await resolveWorkspaceId(api, workspace_id, DEFAULT_WORKSPACE_ID);
       return ok(await api.getClients(resolved));
+    } catch (error) {
+      return fail(error);
+    }
+  }
+);
+
+server.registerTool(
+  'toggl_list_tags',
+  {
+    title: 'List tags',
+    description: 'List tags in a workspace (defaults to TOGGL_DEFAULT_WORKSPACE_ID).',
+    inputSchema: { workspace_id: workspaceIdSchema },
+  },
+  async ({ workspace_id }) => {
+    try {
+      const resolved = await resolveWorkspaceId(api, workspace_id, DEFAULT_WORKSPACE_ID);
+      return ok(await api.getTags(resolved));
     } catch (error) {
       return fail(error);
     }
@@ -282,7 +446,7 @@ server.registerTool(
       period: periodSchema.optional(),
       start_date: z.string().optional(),
       end_date: z.string().optional(),
-      workspace_id: z.number().int().positive().optional(),
+      workspace_id: workspaceIdSchema,
     },
   },
   async ({ period, start_date, end_date, workspace_id }) => {
@@ -292,7 +456,7 @@ server.registerTool(
         start_date,
         end_date,
       });
-      const entries = await api.getTimeEntries(range.start, range.end);
+      const entries = await api.getTimeEntries({ start: range.start, end: range.end });
 
       const resolvedWorkspace = workspace_id ?? DEFAULT_WORKSPACE_ID;
       const projectNames = new Map<number, string>();

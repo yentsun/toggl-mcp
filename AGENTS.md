@@ -16,6 +16,7 @@ src/
 ├── index.ts      # MCP server + tool registration (the only place tools are defined)
 ├── toggl-api.ts  # TogglAPI HTTP client; TogglAPIError; auth + retries-free error mapping
 ├── workspace.ts  # parseWorkspaceId / resolveWorkspaceId; WorkspaceResolutionError
+├── format.ts     # maskEmail / publicWorkspaces (credential redaction)
 ├── cache.ts      # TtlCache
 ├── utils.ts      # periods, date parsing, entry durations, project summarization
 └── types.ts      # shared interfaces

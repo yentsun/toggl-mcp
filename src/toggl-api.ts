@@ -3,8 +3,13 @@ import type {
   Client,
   CreateTimeEntryInput,
   Project,
+  QuotaBucket,
+  Tag,
   TimeEntry,
+  TimeEntryQuery,
+  TimeEntryWriteInput,
   TogglUser,
+  UpdateTimeEntryInput,
   Workspace,
 } from './types.js';
 
@@ -17,7 +22,9 @@ export class TogglAPIError extends Error {
     readonly status: number,
     readonly code: string,
     message: string,
-    readonly retryAfterSeconds?: number
+    readonly retryAfterSeconds?: number,
+    readonly quotaRemaining?: number,
+    readonly quotaResetsIn?: number
   ) {
     super(message);
     this.name = 'TogglAPIError';
@@ -28,6 +35,12 @@ interface RequestOptions {
   method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
   path: string;
   body?: unknown;
+}
+
+function optionalNumber(value: string | null): number | undefined {
+  if (value === null) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 export class TogglAPI {
@@ -62,13 +75,17 @@ export class TogglAPI {
     }
 
     if (!response.ok) {
-      const retryAfter = Number(response.headers.get('retry-after'));
+      const retryAfter = optionalNumber(response.headers.get('retry-after'));
+      const quotaRemaining = optionalNumber(response.headers.get('x-toggl-quota-remaining'));
+      const quotaResetsIn = optionalNumber(response.headers.get('x-toggl-quota-resets-in'));
       const detail = await response.text().catch(() => '');
       throw new TogglAPIError(
         response.status,
         codeForStatus(response.status),
         `Toggl API ${response.status} ${response.statusText}${detail ? `: ${detail.slice(0, 300)}` : ''}`,
-        Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : undefined
+        retryAfter,
+        quotaRemaining,
+        quotaResetsIn
       );
     }
 
@@ -81,6 +98,10 @@ export class TogglAPI {
 
   async getMe(): Promise<TogglUser> {
     return this.request<TogglUser>({ method: 'GET', path: '/me' });
+  }
+
+  async getQuota(): Promise<QuotaBucket[]> {
+    return this.request<QuotaBucket[]>({ method: 'GET', path: '/me/quota' });
   }
 
   async getWorkspaces(): Promise<Workspace[]> {
@@ -96,36 +117,91 @@ export class TogglAPI {
     return this.request<TimeEntry | null>({ method: 'GET', path: '/me/time_entries/current' });
   }
 
-  async getTimeEntries(start?: Date, end?: Date): Promise<TimeEntry[]> {
+  async getTimeEntry(entryId: number): Promise<TimeEntry> {
+    return this.request<TimeEntry>({ method: 'GET', path: `/me/time_entries/${entryId}` });
+  }
+
+  async getTimeEntries(query: TimeEntryQuery = {}): Promise<TimeEntry[]> {
     const params = new URLSearchParams();
-    if (start) params.set('start_date', start.toISOString());
-    if (end) params.set('end_date', end.toISOString());
-    const query = params.toString();
+    if (query.start) params.set('start_date', query.start.toISOString());
+    if (query.end) params.set('end_date', query.end.toISOString());
+    if (query.since !== undefined) params.set('since', String(query.since));
+    if (query.before !== undefined) params.set('before', query.before);
+    if (query.meta !== undefined) params.set('meta', String(query.meta));
+    const search = params.toString();
 
     return this.request<TimeEntry[]>({
       method: 'GET',
-      path: `/me/time_entries${query ? `?${query}` : ''}`,
+      path: `/me/time_entries${search ? `?${search}` : ''}`,
+    });
+  }
+
+  private timeEntryBody(
+    input: TimeEntryWriteInput,
+    workspaceId: number,
+    mode: 'create' | 'update'
+  ): Record<string, unknown> {
+    const body: Record<string, unknown> = {
+      created_with: 'yt-toggl-mcp',
+      workspace_id: workspaceId,
+    };
+
+    if (input.start !== undefined) body.start = input.start;
+    if (input.start_date !== undefined) body.start_date = input.start_date;
+    if (input.description !== undefined) body.description = input.description;
+    if (input.project_id !== undefined) body.project_id = input.project_id;
+    if (input.task_id !== undefined) body.task_id = input.task_id;
+    if (input.tags !== undefined) body.tags = input.tags;
+    if (input.billable !== undefined) body.billable = input.billable;
+    if (input.stop !== undefined) body.stop = input.stop;
+
+    if (input.duration !== undefined) {
+      body.duration = input.duration;
+    } else if (typeof input.stop === 'string' && typeof input.start === 'string') {
+      const duration = Math.round((Date.parse(input.stop) - Date.parse(input.start)) / 1000);
+      if (Number.isFinite(duration)) body.duration = duration;
+    } else if (input.stop === undefined && mode === 'create') {
+      // A new entry with no stop is a running timer: Toggl uses a negative timestamp.
+      const start = input.start ?? new Date().toISOString();
+      body.start = start;
+      body.duration = -1 * Math.floor(Date.now() / 1000);
+    }
+
+    return body;
+  }
+
+  async createTimeEntry(
+    workspaceId: number,
+    input: CreateTimeEntryInput = {}
+  ): Promise<TimeEntry> {
+    return this.request<TimeEntry>({
+      method: 'POST',
+      path: `/workspaces/${workspaceId}/time_entries`,
+      body: this.timeEntryBody(input, workspaceId, 'create'),
+    });
+  }
+
+  async updateTimeEntry(
+    workspaceId: number,
+    entryId: number,
+    input: UpdateTimeEntryInput
+  ): Promise<TimeEntry> {
+    return this.request<TimeEntry>({
+      method: 'PUT',
+      path: `/workspaces/${workspaceId}/time_entries/${entryId}`,
+      body: this.timeEntryBody(input, workspaceId, 'update'),
+    });
+  }
+
+  async deleteTimeEntry(workspaceId: number, entryId: number): Promise<void> {
+    await this.request<void>({
+      method: 'DELETE',
+      path: `/workspaces/${workspaceId}/time_entries/${entryId}`,
     });
   }
 
   async startTimeEntry(workspaceId: number, input: CreateTimeEntryInput = {}): Promise<TimeEntry> {
-    const startedAt = new Date();
-
-    return this.request<TimeEntry>({
-      method: 'POST',
-      path: `/workspaces/${workspaceId}/time_entries`,
-      body: {
-        created_with: 'yt-toggl-mcp',
-        description: input.description ?? '',
-        start: startedAt.toISOString(),
-        // Toggl represents a running entry with a negative unix timestamp.
-        duration: -1 * Math.floor(startedAt.getTime() / 1000),
-        workspace_id: workspaceId,
-        ...(input.project_id !== undefined ? { project_id: input.project_id } : {}),
-        ...(input.tags ? { tags: input.tags } : {}),
-        ...(input.billable !== undefined ? { billable: input.billable } : {}),
-      },
-    });
+    return this.createTimeEntry(workspaceId, input);
   }
 
   async stopTimeEntry(workspaceId: number, entryId: number): Promise<TimeEntry> {
@@ -161,6 +237,19 @@ export class TogglAPI {
     return clients;
   }
 
+  async getTags(workspaceId: number): Promise<Tag[]> {
+    const key = `tags:${workspaceId}`;
+    const cached = this.cache.get<Tag[]>(key);
+    if (cached) return cached;
+
+    const tags = await this.request<Tag[]>({
+      method: 'GET',
+      path: `/workspaces/${workspaceId}/tags`,
+    });
+    this.cache.set(key, tags);
+    return tags;
+  }
+
   get cacheSize(): number {
     return this.cache.size;
   }
@@ -176,6 +265,8 @@ function codeForStatus(status: number): string {
       return 'FORBIDDEN';
     case 404:
       return 'NOT_FOUND';
+    case 410:
+      return 'GONE';
     case 429:
       return 'RATE_LIMITED';
     default:
