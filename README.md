@@ -40,7 +40,45 @@ result carries `quota_remaining` and `quota_resets_in_seconds`.
 | `TOGGL_DEFAULT_WORKSPACE_ID` | no | auto if a single workspace | Default workspace for workspace-scoped tools. |
 | `TOGGL_CACHE_TTL` | no | `3600000` | Metadata cache TTL in ms. |
 
+## Install
+
 ### opencode
+
+Prerequisites: Node.js `>=20.19.0` and a Toggl Track API token from
+[track.toggl.com/profile](https://track.toggl.com/profile) (scroll to the bottom → "Click to reveal").
+
+**1. Build the server**
+
+```bash
+git clone https://github.com/yentsun/toggl-mcp.git
+cd toggl-mcp
+npm ci
+npm run build
+```
+
+**2. Put the token in the environment**
+
+The config below reads it via `{env:TOGGL_API_KEY}`, so the token never lives in the config file.
+
+Windows (persists for new processes — restart your terminal afterwards):
+
+```powershell
+[Environment]::SetEnvironmentVariable('TOGGL_API_KEY', '<your token>', 'User')
+[Environment]::SetEnvironmentVariable('TOGGL_DEFAULT_WORKSPACE_ID', '<workspace id>', 'User')
+```
+
+macOS / Linux (`~/.zshrc`, `~/.bashrc`, …):
+
+```bash
+export TOGGL_API_KEY='<your token>'
+export TOGGL_DEFAULT_WORKSPACE_ID='<workspace id>'
+```
+
+**3. Register the server**
+
+Add this to `~/.config/opencode/opencode.jsonc` (Windows:
+`C:\Users\<you>\.config\opencode\opencode.jsonc`) under the existing `mcp` key, pointing `command` at
+the built entry point:
 
 ```jsonc
 {
@@ -56,6 +94,18 @@ result carries `quota_remaining` and `quota_resets_in_seconds`.
   }
 }
 ```
+
+On Windows the path looks like `F:/Projects/personal/toggl-mcp/dist/index.js` (forward slashes are
+fine). `TOGGL_DEFAULT_WORKSPACE_ID` is optional — omit it if you only have one workspace.
+
+**4. Restart opencode**
+
+Config is read once at startup and is not hot-reloaded, so the server only loads after a restart.
+
+**5. Verify**
+
+Ask opencode to call `toggl_check_auth`. It should return your (masked) account and workspace list.
+A quick win after that: ask "what am I currently tracking?".
 
 ## Development
 
