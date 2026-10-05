@@ -13,3 +13,13 @@ export function maskEmail(email: string): string {
 export function publicWorkspaces(workspaces: Workspace[]): { id: number; name: string }[] {
   return workspaces.map((workspace) => ({ id: workspace.id, name: workspace.name }));
 }
+
+/** Project the project payload down to the identifiers a client needs for validation. */
+export interface PublicProject {
+  id: number;
+  name: string;
+}
+
+export function publicProjects(projects: { id: number; name: string }[]): PublicProject[] {
+  return projects.map((project) => ({ id: project.id, name: project.name }));
+}

@@ -4,10 +4,19 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { config } from 'dotenv';
 import { z } from 'zod';
 import { CredentialsError, credentialsPath, loadCredentials } from './credentials.js';
-import { maskEmail, publicWorkspaces } from './format.js';
+import { maskEmail, publicProjects, publicWorkspaces } from './format.js';
 import { collectReportEntries } from './report.js';
 import { TogglAPI, TogglAPIError } from './toggl-api.js';
-import { WorkspaceResolutionError, parseWorkspaceId, resolveWorkspaceId } from './workspace.js';
+import {
+  ProjectValidationError,
+  WorkspaceResolutionError,
+  WorkspaceValidationError,
+  parseWorkspaceId,
+  resolveEntryScope,
+  resolveProjectId,
+  resolveWorkspaceForEntry,
+  resolveWorkspaceId,
+} from './workspace.js';
 import {
   PERIODS,
   entryOverlapSeconds,
@@ -17,7 +26,7 @@ import {
   summarizeByProject,
 } from './utils.js';
 
-const VERSION = '0.3.0';
+const VERSION = '0.4.0';
 
 const argv = process.argv.slice(2);
 if (argv.includes('--version') || argv.includes('-v')) {
@@ -87,6 +96,17 @@ function fail(error: unknown): ToolResult {
     payload.code = error.code;
     // Belt-and-braces: workspace payloads carry a workspace api_token.
     payload.available_workspaces = publicWorkspaces(error.availableWorkspaces);
+  }
+  if (error instanceof WorkspaceValidationError) {
+    payload.code = error.code;
+    payload.workspace_id = error.workspaceId;
+    payload.available_workspaces = publicWorkspaces(error.availableWorkspaces);
+  }
+  if (error instanceof ProjectValidationError) {
+    payload.code = error.code;
+    payload.project_id = error.projectId;
+    payload.workspace_id = error.workspaceId;
+    payload.available_projects = publicProjects(error.availableProjects);
   }
 
   return { isError: true, ...ok(payload) };
@@ -255,10 +275,14 @@ server.registerTool(
   },
   async ({ description, project_id, task_id, workspace_id, tags, billable, start, stop, duration }) => {
     try {
-      const resolved = await resolveWorkspaceId(api, workspace_id, DEFAULT_WORKSPACE_ID);
-      const entry = await api.createTimeEntry(resolved, {
+      const scope = await resolveEntryScope(
+        api,
+        { workspace_id, project_id },
+        DEFAULT_WORKSPACE_ID
+      );
+      const entry = await api.createTimeEntry(scope.workspaceId, {
         description,
-        project_id,
+        project_id: scope.projectId,
         task_id,
         tags,
         billable,
@@ -305,11 +329,11 @@ server.registerTool(
     duration,
   }) => {
     try {
-      const resolved =
-        workspace_id ?? (await api.getTimeEntry(time_entry_id)).workspace_id;
+      const resolved = await resolveWorkspaceForEntry(api, time_entry_id, workspace_id);
+      const verifiedProjectId = await resolveProjectId(api, resolved, project_id);
       const entry = await api.updateTimeEntry(resolved, time_entry_id, {
         description,
-        project_id,
+        project_id: verifiedProjectId,
         task_id,
         tags,
         billable,
@@ -336,7 +360,7 @@ server.registerTool(
   },
   async ({ time_entry_id, workspace_id }) => {
     try {
-      const resolved = workspace_id ?? (await api.getTimeEntry(time_entry_id)).workspace_id;
+      const resolved = await resolveWorkspaceForEntry(api, time_entry_id, workspace_id);
       await api.deleteTimeEntry(resolved, time_entry_id);
       return ok({ deleted: true, time_entry_id });
     } catch (error) {
@@ -349,7 +373,8 @@ server.registerTool(
   'toggl_start_timer',
   {
     title: 'Start timer',
-    description: 'Start a new running time entry with an optional description, project, and tags.',
+    description:
+      'Start a new running time entry with an optional description, project, and tags. Use this to switch tasks; do not stop the running entry first unless the caller explicitly asked to stop tracking.',
     inputSchema: {
       description: z.string().optional(),
       project_id: z.number().int().positive().optional(),
@@ -360,8 +385,17 @@ server.registerTool(
   },
   async ({ description, project_id, workspace_id, tags, billable }) => {
     try {
-      const resolved = await resolveWorkspaceId(api, workspace_id, DEFAULT_WORKSPACE_ID);
-      const entry = await api.startTimeEntry(resolved, { description, project_id, tags, billable });
+      const scope = await resolveEntryScope(
+        api,
+        { workspace_id, project_id },
+        DEFAULT_WORKSPACE_ID
+      );
+      const entry = await api.startTimeEntry(scope.workspaceId, {
+        description,
+        project_id: scope.projectId,
+        tags,
+        billable,
+      });
       return ok({ started: true, entry });
     } catch (error) {
       return fail(error);
@@ -374,7 +408,7 @@ server.registerTool(
   {
     title: 'Stop timer',
     description:
-      'Stop the running time entry. Defaults to the currently running entry; pass entry_id to stop a specific one.',
+      'Explicitly stop the running time entry. Defaults to the currently running entry; pass entry_id to stop a specific one. Only call when the caller asked to stop tracking.',
     inputSchema: {
       entry_id: z.number().int().positive().optional(),
       workspace_id: workspaceIdSchema,
@@ -478,6 +512,12 @@ server.registerTool(
       const rangeStartMs = range.start.getTime();
       const rangeEndMs = range.end.getTime();
 
+      // Verify any supplied/default workspace before reading entries or projects.
+      const resolvedWorkspace =
+        workspace_id !== undefined || DEFAULT_WORKSPACE_ID !== undefined
+          ? await resolveWorkspaceId(api, workspace_id, DEFAULT_WORKSPACE_ID)
+          : undefined;
+
       // Collect entries starting in the range, the running entry, and any earlier
       // entries that overlap — see collectReportEntries for the backward scan.
       const scan = await collectReportEntries(range.start, range.end, {
@@ -486,7 +526,6 @@ server.registerTool(
       });
       const collected = scan.entries;
 
-      const resolvedWorkspace = workspace_id ?? DEFAULT_WORKSPACE_ID;
       // The report is workspace-scoped; /me/time_entries returns every workspace.
       const scoped = filterEntriesByWorkspace(collected, resolvedWorkspace);
       // Only entries that actually overlap the interval count (clipped to it below).
