@@ -98,14 +98,19 @@ export async function resolveProjectId(
 ): Promise<number | undefined> {
   if (projectId === undefined) return undefined;
 
-  const projects = await api.getProjects(workspaceId);
-  if (projects.some((project) => project.id === projectId)) return projectId;
+  // Include archived projects so a valid project is not rejected just because
+  // the API's default project list omits it.
+  const cached = api.getCachedProjects(workspaceId, { includeArchived: true });
+  if (cached?.some((project) => project.id === projectId)) return projectId;
 
-  // A cache hit can be stale (e.g. a project created within the TTL window), so
-  // refresh once before rejecting a possibly-valid project.
-  const refreshed = await api.getProjects(workspaceId, { refresh: true });
-  if (!refreshed.some((project) => project.id === projectId)) {
-    throw new ProjectValidationError(projectId, workspaceId, publicProjects(refreshed));
+  // A warm cache that misses may be stale, so refresh it; a cold cache is
+  // authoritative on its own. Either way this is a single request.
+  const projects = await api.getProjects(workspaceId, {
+    includeArchived: true,
+    refresh: cached !== undefined,
+  });
+  if (!projects.some((project) => project.id === projectId)) {
+    throw new ProjectValidationError(projectId, workspaceId, publicProjects(projects));
   }
   return projectId;
 }

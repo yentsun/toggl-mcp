@@ -163,9 +163,7 @@ describe('TogglAPI', () => {
   });
 
   it('refreshes projects when requested', async () => {
-    fetchMock.mockImplementation(async () =>
-      jsonResponse([{ id: 1, workspace_id: 5, name: 'a' }])
-    );
+    fetchMock.mockImplementation(async () => jsonResponse([{ id: 1, workspace_id: 5, name: 'a' }]));
     const api = new TogglAPI('secret');
 
     await api.getProjects(5);
@@ -173,6 +171,15 @@ describe('TogglAPI', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls[1]![0]).toBe(`${API_BASE_URL}/workspaces/5/projects`);
+  });
+
+  it('requests archived projects when asked', async () => {
+    fetchMock.mockResolvedValue(jsonResponse([{ id: 1, workspace_id: 5, name: 'a' }]));
+    const api = new TogglAPI('secret');
+
+    await api.getProjects(5, { includeArchived: true });
+
+    expect(fetchMock.mock.calls[0]![0]).toBe(`${API_BASE_URL}/workspaces/5/projects?active=both`);
   });
 
   it('loads the API quota', async () => {

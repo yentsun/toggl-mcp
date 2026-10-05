@@ -213,11 +213,16 @@ export class TogglAPI {
     });
   }
 
+  private projectsCacheKey(workspaceId: number, includeArchived: boolean): string {
+    return `projects:${workspaceId}${includeArchived ? ':all' : ''}`;
+  }
+
   async getProjects(
     workspaceId: number,
-    options: { refresh?: boolean } = {}
+    options: { refresh?: boolean; includeArchived?: boolean } = {}
   ): Promise<Project[]> {
-    const key = `projects:${workspaceId}`;
+    const includeArchived = options.includeArchived === true;
+    const key = this.projectsCacheKey(workspaceId, includeArchived);
     if (!options.refresh) {
       const cached = this.cache.get<Project[]>(key);
       if (cached) return cached;
@@ -225,10 +230,20 @@ export class TogglAPI {
 
     const projects = await this.request<Project[]>({
       method: 'GET',
-      path: `/workspaces/${workspaceId}/projects`,
+      path: `/workspaces/${workspaceId}/projects${includeArchived ? '?active=both' : ''}`,
     });
     this.cache.set(key, projects);
     return projects;
+  }
+
+  /** Cached projects for a workspace without triggering a request. */
+  getCachedProjects(
+    workspaceId: number,
+    options: { includeArchived?: boolean } = {}
+  ): Project[] | undefined {
+    return this.cache.get<Project[]>(
+      this.projectsCacheKey(workspaceId, options.includeArchived === true)
+    );
   }
 
   async getClients(workspaceId: number): Promise<Client[]> {

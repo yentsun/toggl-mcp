@@ -20,6 +20,7 @@ function fakeApi(
   return {
     getWorkspaces: vi.fn().mockResolvedValue(workspaces),
     getProjects: vi.fn().mockResolvedValue(projects),
+    getCachedProjects: vi.fn().mockReturnValue(undefined),
     getTimeEntry: vi.fn().mockResolvedValue(entry),
   } as unknown as TogglAPI;
 }
@@ -124,7 +125,7 @@ describe('resolveProjectId', () => {
     const api = fakeApi([workspace], projects);
 
     await expect(resolveProjectId(api, 7, 300)).resolves.toBe(300);
-    expect(api.getProjects).toHaveBeenCalledWith(7);
+    expect(api.getProjects).toHaveBeenCalledWith(7, { includeArchived: true, refresh: false });
   });
 
   it('returns undefined without listing projects when no project is selected', async () => {
@@ -134,7 +135,7 @@ describe('resolveProjectId', () => {
     expect(api.getProjects).not.toHaveBeenCalled();
   });
 
-  it('rejects a project that does not belong to the workspace', async () => {
+  it('rejects a project that does not belong to the workspace with a single request', async () => {
     const api = fakeApi([workspace], projects);
 
     const error = await resolveProjectId(api, 7, 301).catch((caught: unknown) => caught);
@@ -146,18 +147,33 @@ describe('resolveProjectId', () => {
       workspaceId: 7,
       availableProjects: [{ id: 300, name: 'alpha' }],
     });
+    expect(api.getProjects).toHaveBeenCalledTimes(1);
   });
 
-  it('refreshes the project list once when the cached list misses the project', async () => {
-    const getProjects = vi.fn().mockResolvedValueOnce([]).mockResolvedValueOnce(projects);
+  it('refreshes a stale cached list once before rejecting', async () => {
+    const getProjects = vi.fn().mockResolvedValueOnce(projects);
     const api = {
       getWorkspaces: vi.fn().mockResolvedValue([workspace]),
+      getCachedProjects: vi.fn().mockReturnValue([]),
       getProjects,
     } as unknown as TogglAPI;
 
     await expect(resolveProjectId(api, 7, 300)).resolves.toBe(300);
-    expect(getProjects).toHaveBeenNthCalledWith(1, 7);
-    expect(getProjects).toHaveBeenNthCalledWith(2, 7, { refresh: true });
+    expect(getProjects).toHaveBeenCalledTimes(1);
+    expect(getProjects).toHaveBeenCalledWith(7, { includeArchived: true, refresh: true });
+  });
+
+  it('makes a single authoritative request when the list was not cached', async () => {
+    const getProjects = vi.fn().mockResolvedValue(projects);
+    const api = {
+      getWorkspaces: vi.fn().mockResolvedValue([workspace]),
+      getCachedProjects: vi.fn().mockReturnValue(undefined),
+      getProjects,
+    } as unknown as TogglAPI;
+
+    await expect(resolveProjectId(api, 7, 300)).resolves.toBe(300);
+    expect(getProjects).toHaveBeenCalledTimes(1);
+    expect(getProjects).toHaveBeenCalledWith(7, { includeArchived: true, refresh: false });
   });
 });
 

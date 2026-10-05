@@ -374,7 +374,7 @@ server.registerTool(
   {
     title: 'Start timer',
     description:
-      'Start a new running time entry with an optional description, project, and tags. Starting an entry switches the active timer; do not stop the current one first unless the caller explicitly asked to stop tracking.',
+      'Start a new running time entry with an optional description, project, and tags. Use this to switch tasks; do not stop the running entry first unless the caller explicitly asked to stop tracking.',
     inputSchema: {
       description: z.string().optional(),
       project_id: z.number().int().positive().optional(),
