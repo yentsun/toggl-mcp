@@ -6,15 +6,21 @@ import {
   parseWorkspaceId,
   resolveEntryScope,
   resolveProjectId,
+  resolveWorkspaceForEntry,
   resolveWorkspaceId,
 } from '../src/workspace.js';
 import type { TogglAPI } from '../src/toggl-api.js';
-import type { Project, Workspace } from '../src/types.js';
+import type { Project, TimeEntry, Workspace } from '../src/types.js';
 
-function fakeApi(workspaces: Workspace[], projects: Project[] = []): TogglAPI {
+function fakeApi(
+  workspaces: Workspace[],
+  projects: Project[] = [],
+  entry: Partial<TimeEntry> = {}
+): TogglAPI {
   return {
     getWorkspaces: vi.fn().mockResolvedValue(workspaces),
     getProjects: vi.fn().mockResolvedValue(projects),
+    getTimeEntry: vi.fn().mockResolvedValue(entry),
   } as unknown as TogglAPI;
 }
 
@@ -140,6 +146,43 @@ describe('resolveProjectId', () => {
       workspaceId: 7,
       availableProjects: [{ id: 300, name: 'alpha' }],
     });
+  });
+
+  it('refreshes the project list once when the cached list misses the project', async () => {
+    const getProjects = vi.fn().mockResolvedValueOnce([]).mockResolvedValueOnce(projects);
+    const api = {
+      getWorkspaces: vi.fn().mockResolvedValue([workspace]),
+      getProjects,
+    } as unknown as TogglAPI;
+
+    await expect(resolveProjectId(api, 7, 300)).resolves.toBe(300);
+    expect(getProjects).toHaveBeenNthCalledWith(1, 7);
+    expect(getProjects).toHaveBeenNthCalledWith(2, 7, { refresh: true });
+  });
+});
+
+describe('resolveWorkspaceForEntry', () => {
+  it('verifies an explicit workspace id without loading the entry', async () => {
+    const api = fakeApi([workspace], [], { id: 42, workspace_id: 9 });
+
+    await expect(resolveWorkspaceForEntry(api, 42, 7)).resolves.toBe(7);
+    expect(api.getTimeEntry).not.toHaveBeenCalled();
+  });
+
+  it('loads the entry and verifies its workspace when no id is given', async () => {
+    const api = fakeApi([workspace], [], { id: 42, workspace_id: 7 });
+
+    await expect(resolveWorkspaceForEntry(api, 42)).resolves.toBe(7);
+    expect(api.getTimeEntry).toHaveBeenCalledWith(42);
+  });
+
+  it('rejects an inaccessible explicit id without loading the entry', async () => {
+    const api = fakeApi([workspace], [], { id: 42, workspace_id: 7 });
+
+    await expect(resolveWorkspaceForEntry(api, 42, 4242)).rejects.toBeInstanceOf(
+      WorkspaceValidationError
+    );
+    expect(api.getTimeEntry).not.toHaveBeenCalled();
   });
 });
 

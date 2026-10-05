@@ -213,10 +213,15 @@ export class TogglAPI {
     });
   }
 
-  async getProjects(workspaceId: number): Promise<Project[]> {
+  async getProjects(
+    workspaceId: number,
+    options: { refresh?: boolean } = {}
+  ): Promise<Project[]> {
     const key = `projects:${workspaceId}`;
-    const cached = this.cache.get<Project[]>(key);
-    if (cached) return cached;
+    if (!options.refresh) {
+      const cached = this.cache.get<Project[]>(key);
+      if (cached) return cached;
+    }
 
     const projects = await this.request<Project[]>({
       method: 'GET',

@@ -13,6 +13,8 @@ import {
   WorkspaceValidationError,
   parseWorkspaceId,
   resolveEntryScope,
+  resolveProjectId,
+  resolveWorkspaceForEntry,
   resolveWorkspaceId,
 } from './workspace.js';
 import {
@@ -327,11 +329,11 @@ server.registerTool(
     duration,
   }) => {
     try {
-      const resolved =
-        workspace_id ?? (await api.getTimeEntry(time_entry_id)).workspace_id;
+      const resolved = await resolveWorkspaceForEntry(api, time_entry_id, workspace_id);
+      const verifiedProjectId = await resolveProjectId(api, resolved, project_id);
       const entry = await api.updateTimeEntry(resolved, time_entry_id, {
         description,
-        project_id,
+        project_id: verifiedProjectId,
         task_id,
         tags,
         billable,
@@ -358,7 +360,7 @@ server.registerTool(
   },
   async ({ time_entry_id, workspace_id }) => {
     try {
-      const resolved = workspace_id ?? (await api.getTimeEntry(time_entry_id)).workspace_id;
+      const resolved = await resolveWorkspaceForEntry(api, time_entry_id, workspace_id);
       await api.deleteTimeEntry(resolved, time_entry_id);
       return ok({ deleted: true, time_entry_id });
     } catch (error) {
@@ -510,6 +512,12 @@ server.registerTool(
       const rangeStartMs = range.start.getTime();
       const rangeEndMs = range.end.getTime();
 
+      // Verify any supplied/default workspace before reading entries or projects.
+      const resolvedWorkspace =
+        workspace_id !== undefined || DEFAULT_WORKSPACE_ID !== undefined
+          ? await resolveWorkspaceId(api, workspace_id, DEFAULT_WORKSPACE_ID)
+          : undefined;
+
       // Collect entries starting in the range, the running entry, and any earlier
       // entries that overlap — see collectReportEntries for the backward scan.
       const scan = await collectReportEntries(range.start, range.end, {
@@ -518,11 +526,6 @@ server.registerTool(
       });
       const collected = scan.entries;
 
-      // Verify any supplied/default workspace before the report reads its projects.
-      const resolvedWorkspace =
-        workspace_id !== undefined || DEFAULT_WORKSPACE_ID !== undefined
-          ? await resolveWorkspaceId(api, workspace_id, DEFAULT_WORKSPACE_ID)
-          : undefined;
       // The report is workspace-scoped; /me/time_entries returns every workspace.
       const scoped = filterEntriesByWorkspace(collected, resolvedWorkspace);
       // Only entries that actually overlap the interval count (clipped to it below).

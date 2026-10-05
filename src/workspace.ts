@@ -99,10 +99,31 @@ export async function resolveProjectId(
   if (projectId === undefined) return undefined;
 
   const projects = await api.getProjects(workspaceId);
-  if (!projects.some((project) => project.id === projectId)) {
-    throw new ProjectValidationError(projectId, workspaceId, publicProjects(projects));
+  if (projects.some((project) => project.id === projectId)) return projectId;
+
+  // A cache hit can be stale (e.g. a project created within the TTL window), so
+  // refresh once before rejecting a possibly-valid project.
+  const refreshed = await api.getProjects(workspaceId, { refresh: true });
+  if (!refreshed.some((project) => project.id === projectId)) {
+    throw new ProjectValidationError(projectId, workspaceId, publicProjects(refreshed));
   }
   return projectId;
+}
+
+/**
+ * Resolve the workspace for an existing entry: verify an explicit id, otherwise
+ * load the entry and use (and verify) the workspace that owns it.
+ */
+export async function resolveWorkspaceForEntry(
+  api: TogglAPI,
+  timeEntryId: number,
+  explicitWorkspaceId?: number
+): Promise<number> {
+  if (explicitWorkspaceId !== undefined) {
+    return resolveWorkspaceId(api, explicitWorkspaceId);
+  }
+  const entry = await api.getTimeEntry(timeEntryId);
+  return resolveWorkspaceId(api, entry.workspace_id);
 }
 
 export interface EntryScopeInput {
