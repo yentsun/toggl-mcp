@@ -151,6 +151,17 @@ describe('TogglAPI', () => {
     expect(fetchMock.mock.calls[0]![0]).toBe(`${API_BASE_URL}/workspaces/5/tags`);
   });
 
+  it('caches projects per workspace', async () => {
+    fetchMock.mockResolvedValue(jsonResponse([{ id: 1, workspace_id: 5, name: 'a' }]));
+    const api = new TogglAPI('secret');
+
+    await api.getProjects(5);
+    await api.getProjects(5);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]![0]).toBe(`${API_BASE_URL}/workspaces/5/projects`);
+  });
+
   it('loads the API quota', async () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse([{ organization_id: 1, remaining: 10, total: 30, resets_in_secs: 60 }])
@@ -198,6 +209,19 @@ describe('TogglAPI', () => {
       created_with: 'yt-toggl-mcp',
     });
     expect(body.duration).toBeLessThan(0);
+  });
+
+  it('starts a timer with a single create request and never an explicit stop', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ id: 99 }));
+    const api = new TogglAPI('secret');
+
+    await api.startTimeEntry(5, { description: 'switch', project_id: 3 });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe(`${API_BASE_URL}/workspaces/5/time_entries`);
+    expect(init.method).toBe('POST');
+    expect(fetchMock.mock.calls.some(([, callInit]) => callInit.method === 'PATCH')).toBe(false);
   });
 
   it('stops an entry via the workspace stop endpoint', async () => {

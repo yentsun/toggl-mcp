@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { maskEmail, publicWorkspaces } from '../src/format.js';
-import type { Workspace } from '../src/types.js';
+import { maskEmail, publicProjects, publicWorkspaces } from '../src/format.js';
+import type { Project, Workspace } from '../src/types.js';
 
 describe('maskEmail', () => {
   it('keeps the first local character and the domain', () => {
@@ -23,5 +23,20 @@ describe('publicWorkspaces', () => {
     } as unknown as Workspace;
 
     expect(publicWorkspaces([leaked])).toEqual([{ id: 7, name: 'ws' }]);
+  });
+});
+
+describe('publicProjects', () => {
+  it('keeps only the id and name a client needs for validation', () => {
+    const project = {
+      id: 300,
+      workspace_id: 7,
+      client_id: 5,
+      name: 'alpha',
+      active: true,
+      color: '#ff0000',
+    } as unknown as Project;
+
+    expect(publicProjects([project])).toEqual([{ id: 300, name: 'alpha' }]);
   });
 });
