@@ -129,6 +129,40 @@ describe('TogglAPI', () => {
     expect(body).not.toHaveProperty('duration');
   });
 
+  it('omits blank start/stop timestamps when updating a running entry', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ id: 7 }));
+    const api = new TogglAPI('secret');
+
+    // Mirrors an MCP client echoing an unset stop back as "" for a rename.
+    await api.updateTimeEntry(5, 7, {
+      description: 'renamed',
+      project_id: 3,
+      task_id: 1,
+      billable: true,
+      start: '',
+      stop: '',
+      duration: 0,
+    });
+
+    const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
+    expect(body).not.toHaveProperty('start');
+    expect(body).not.toHaveProperty('stop');
+    expect(body).toMatchObject({ workspace_id: 5, description: 'renamed', duration: 0 });
+  });
+
+  it('creates a running entry when start/stop are whitespace-only', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ id: 99 }));
+    const api = new TogglAPI('secret');
+
+    await api.createTimeEntry(5, { description: 'work', start: '  ', stop: '   ' });
+
+    const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
+    expect(typeof body.start).toBe('string');
+    expect(body.start.trim()).not.toBe('');
+    expect(body).not.toHaveProperty('stop');
+    expect(body.duration).toBeLessThan(0);
+  });
+
   it('deletes an entry with DELETE', async () => {
     fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
     const api = new TogglAPI('secret');

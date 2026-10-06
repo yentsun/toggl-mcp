@@ -43,6 +43,16 @@ function optionalNumber(value: string | null): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+/**
+ * Optional timestamps arrive from MCP clients as empty strings for "unset".
+ * Toggl rejects them with `Invalid time format ""`, so treat blank as omitted.
+ */
+function optionalTimestamp(value: string | null | undefined): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed === '' ? undefined : trimmed;
+}
+
 export class TogglAPI {
   private readonly headers: Record<string, string>;
   private readonly cache: TtlCache;
@@ -143,7 +153,9 @@ export class TogglAPI {
   ): Record<string, unknown> {
     // Toggl requires `start` on creation. Default it before deriving duration so a
     // completed create like { duration: 3600 } does not go out without a start time.
-    const start = input.start ?? (mode === 'create' ? new Date().toISOString() : undefined);
+    const start =
+      optionalTimestamp(input.start) ?? (mode === 'create' ? new Date().toISOString() : undefined);
+    const stop = optionalTimestamp(input.stop);
 
     const body: Record<string, unknown> = {
       created_with: 'yt-toggl-mcp',
@@ -157,14 +169,14 @@ export class TogglAPI {
     if (input.task_id !== undefined) body.task_id = input.task_id;
     if (input.tags !== undefined) body.tags = input.tags;
     if (input.billable !== undefined) body.billable = input.billable;
-    if (input.stop !== undefined) body.stop = input.stop;
+    if (stop !== undefined) body.stop = stop;
 
     if (input.duration !== undefined) {
       body.duration = input.duration;
-    } else if (typeof input.stop === 'string' && start !== undefined) {
-      const duration = Math.round((Date.parse(input.stop) - Date.parse(start)) / 1000);
+    } else if (stop !== undefined && start !== undefined) {
+      const duration = Math.round((Date.parse(stop) - Date.parse(start)) / 1000);
       if (Number.isFinite(duration)) body.duration = duration;
-    } else if (input.stop === undefined && mode === 'create') {
+    } else if (stop === undefined && mode === 'create') {
       // A new entry with no stop is a running timer: Toggl uses a negative timestamp.
       body.duration = -1 * Math.floor(Date.now() / 1000);
     }
