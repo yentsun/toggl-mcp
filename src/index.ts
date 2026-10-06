@@ -20,6 +20,7 @@ import {
 import {
   PERIODS,
   entryOverlapSeconds,
+  entrySeconds,
   filterEntriesByWorkspace,
   rangeFromInput,
   roundHours,
@@ -183,11 +184,7 @@ server.registerTool(
     try {
       const entry = await api.getCurrentTimeEntry();
       if (!entry) return ok({ running: false });
-      const elapsed = Math.max(
-        0,
-        Math.round((Date.now() - new Date(entry.start).getTime()) / 1000)
-      );
-      return ok({ running: true, entry, elapsed_seconds: elapsed });
+      return ok({ running: true, entry, elapsed_seconds: entrySeconds(entry) });
     } catch (error) {
       return fail(error);
     }
