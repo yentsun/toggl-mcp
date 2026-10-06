@@ -302,7 +302,7 @@ server.registerTool(
   {
     title: 'Update a time entry',
     description:
-      'Edit an existing time entry (description, project, task, tags, billable, start, stop or duration). Only the fields you pass are changed.',
+      'Edit an existing time entry (description, project, task, tags, billable, start, stop or duration). Only the fields you pass are changed; a zero duration is ignored unless a stop is also given.',
     inputSchema: {
       time_entry_id: timeEntryIdSchema,
       workspace_id: workspaceIdSchema,

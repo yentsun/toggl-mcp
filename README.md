@@ -20,7 +20,7 @@ stripped from every response and user emails are masked.
 | `toggl_get_time_entry` | Load a single entry by id. |
 | `toggl_get_time_entries` | List entries for a `period`, an inclusive `start_date`/`end_date` range, or `since`/`before`. |
 | `toggl_create_time_entry` | Create a completed entry (`start` + `stop`/`duration`) or a running one. |
-| `toggl_update_time_entry` | Edit an existing entry; only the fields you pass are changed. |
+| `toggl_update_time_entry` | Edit an existing entry; only the fields you pass are changed. A zero `duration` is ignored unless a `stop` is given. |
 | `toggl_delete_time_entry` | Permanently delete an entry. |
 | `toggl_start_timer` | Start a running timer with optional description, project, tags. |
 | `toggl_stop_timer` | Stop the running timer (or a specific `entry_id`). |
