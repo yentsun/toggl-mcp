@@ -129,11 +129,11 @@ describe('TogglAPI', () => {
     expect(body).not.toHaveProperty('duration');
   });
 
-  it('omits blank start/stop timestamps when updating a running entry', async () => {
+  it('drops echoed blank timestamps and a zero duration on update', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ id: 7 }));
     const api = new TogglAPI('secret');
 
-    // Mirrors an MCP client echoing an unset stop back as "" for a rename.
+    // Mirrors an MCP client echoing an unset stop and a default duration back for a rename.
     await api.updateTimeEntry(5, 7, {
       description: 'renamed',
       project_id: 3,
@@ -147,7 +147,61 @@ describe('TogglAPI', () => {
     const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
     expect(body).not.toHaveProperty('start');
     expect(body).not.toHaveProperty('stop');
-    expect(body).toMatchObject({ workspace_id: 5, description: 'renamed', duration: 0 });
+    expect(body).not.toHaveProperty('duration');
+    expect(body).toMatchObject({
+      workspace_id: 5,
+      description: 'renamed',
+      project_id: 3,
+      task_id: 1,
+      billable: true,
+    });
+  });
+
+  it('keeps a negative duration when updating a running entry', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ id: 7 }));
+    const api = new TogglAPI('secret');
+
+    await api.updateTimeEntry(5, 7, {
+      description: 'renamed',
+      start: '',
+      stop: '',
+      duration: -1791259557,
+    });
+
+    const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
+    expect(body).not.toHaveProperty('start');
+    expect(body).not.toHaveProperty('stop');
+    expect(body.duration).toBe(-1791259557);
+  });
+
+  it('keeps an explicit non-zero duration on update', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ id: 7 }));
+    const api = new TogglAPI('secret');
+
+    await api.updateTimeEntry(5, 7, { duration: 3600 });
+
+    const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
+    expect(body.duration).toBe(3600);
+  });
+
+  it('omits a null stop', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ id: 7 }));
+    const api = new TogglAPI('secret');
+
+    await api.updateTimeEntry(5, 7, { description: 'renamed', stop: null });
+
+    const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
+    expect(body).not.toHaveProperty('stop');
+  });
+
+  it('omits a blank start_date', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ id: 1 }));
+    const api = new TogglAPI('secret');
+
+    await api.createTimeEntry(5, { description: 'x', start_date: '  ' });
+
+    const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
+    expect(body).not.toHaveProperty('start_date');
   });
 
   it('creates a running entry when start/stop are whitespace-only', async () => {
