@@ -8,13 +8,14 @@ import {
   CredentialsError,
   credentialsPath,
   loadCredentials,
+  settingsPathFromArgv,
 } from '../src/credentials.js';
 
-const homes: string[] = [];
+const tempDirs: string[] = [];
 
 function makeHome(contents?: string): string {
   const home = mkdtempSync(join(tmpdir(), 'yt-toggl-mcp-creds-'));
-  homes.push(home);
+  tempDirs.push(home);
   if (contents !== undefined) {
     mkdirSync(join(home, CREDENTIALS_DIRNAME), { recursive: true });
     writeFileSync(join(home, CREDENTIALS_DIRNAME, CREDENTIALS_FILENAME), contents, 'utf8');
@@ -22,8 +23,38 @@ function makeHome(contents?: string): string {
   return home;
 }
 
+function makeSettings(contents: string): string {
+  const dir = mkdtempSync(join(tmpdir(), 'yt-toggl-mcp-settings-'));
+  tempDirs.push(dir);
+  const file = join(dir, 'settings.json');
+  writeFileSync(file, contents, 'utf8');
+  return file;
+}
+
 afterEach(() => {
-  while (homes.length) rmSync(homes.pop()!, { recursive: true, force: true });
+  while (tempDirs.length) rmSync(tempDirs.pop()!, { recursive: true, force: true });
+});
+
+describe('settingsPathFromArgv', () => {
+  it('returns undefined when no settings file is selected', () => {
+    expect(settingsPathFromArgv([])).toBeUndefined();
+    expect(settingsPathFromArgv(['--version', '--help'])).toBeUndefined();
+  });
+
+  it('reads the path after --settings', () => {
+    expect(settingsPathFromArgv(['--settings', '.yt-toggl.json'])).toBe('.yt-toggl.json');
+    expect(settingsPathFromArgv(['--settings', '  spaced.json  ', 'extra'])).toBe('spaced.json');
+  });
+
+  it('reads the path from --settings=<path>', () => {
+    expect(settingsPathFromArgv(['--settings=project.json'])).toBe('project.json');
+  });
+
+  it('rejects --settings without a path', () => {
+    expect(() => settingsPathFromArgv(['--settings'])).toThrow(/requires a file path/);
+    expect(() => settingsPathFromArgv(['--settings='])).toThrow(/requires a file path/);
+    expect(() => settingsPathFromArgv(['--settings', '   '])).toThrow(/requires a file path/);
+  });
 });
 
 describe('credentialsPath', () => {
@@ -143,5 +174,121 @@ describe('loadCredentials', () => {
     mkdirSync(join(home, CREDENTIALS_DIRNAME, CREDENTIALS_FILENAME), { recursive: true });
 
     expect(() => loadCredentials({}, home)).toThrow(/Could not read/);
+  });
+
+  it('behaves exactly as before when no settings file is selected', () => {
+    const home = makeHome(JSON.stringify({ apiToken: 'file-token', workspaceId: 111 }));
+
+    expect(loadCredentials({}, home, undefined)).toStrictEqual(loadCredentials({}, home));
+  });
+});
+
+describe('loadCredentials with a project settings file', () => {
+  it('shares the user token while the settings file overrides both defaults', () => {
+    const home = makeHome(
+      JSON.stringify({ apiToken: 'file-token', workspaceId: 111, projectId: 222 })
+    );
+    const settings = makeSettings(JSON.stringify({ workspaceId: 333, projectId: 444 }));
+
+    expect(loadCredentials({}, home, settings)).toEqual({
+      apiToken: 'file-token',
+      defaultWorkspaceId: 333,
+      defaultProjectId: 444,
+    });
+  });
+
+  it('keeps the user defaults for keys the settings file omits', () => {
+    const home = makeHome(
+      JSON.stringify({ apiToken: 'file-token', workspaceId: 111, projectId: 222 })
+    );
+    const settings = makeSettings(JSON.stringify({ projectId: 999 }));
+
+    expect(loadCredentials({}, home, settings)).toEqual({
+      apiToken: 'file-token',
+      defaultWorkspaceId: 111,
+      defaultProjectId: 999,
+    });
+  });
+
+  it('keeps the user defaults when the settings file is empty', () => {
+    const home = makeHome(
+      JSON.stringify({ apiToken: 'file-token', workspaceId: 111, projectId: 222 })
+    );
+    const settings = makeSettings('{}');
+
+    expect(loadCredentials({}, home, settings)).toEqual({
+      apiToken: 'file-token',
+      defaultWorkspaceId: 111,
+      defaultProjectId: 222,
+    });
+  });
+
+  it('accepts settings ids stored as numeric strings', () => {
+    const home = makeHome(JSON.stringify({ apiToken: 'file-token', workspaceId: 111 }));
+    const settings = makeSettings(JSON.stringify({ workspaceId: '333', projectId: '444' }));
+
+    expect(loadCredentials({}, home, settings)).toEqual({
+      apiToken: 'file-token',
+      defaultWorkspaceId: '333',
+      defaultProjectId: '444',
+    });
+  });
+
+  it('ignores an apiToken in the settings file', () => {
+    const home = makeHome(JSON.stringify({ apiToken: 'file-token' }));
+    const settings = makeSettings(JSON.stringify({ apiToken: 'settings-token', workspaceId: 5 }));
+
+    expect(loadCredentials({}, home, settings).apiToken).toBe('file-token');
+  });
+
+  it('still requires the token in the user file or the environment', () => {
+    const home = makeHome();
+    const settings = makeSettings(JSON.stringify({ apiToken: 'settings-token' }));
+
+    expect(() => loadCredentials({}, home, settings)).toThrow(credentialsPath(home));
+  });
+
+  it('lets the environment token win while keeping the settings defaults', () => {
+    const home = makeHome(JSON.stringify({ apiToken: 'file-token', workspaceId: 111 }));
+    const settings = makeSettings(JSON.stringify({ workspaceId: 333 }));
+
+    expect(loadCredentials({ TOGGL_API_KEY: 'env-token' }, home, settings)).toStrictEqual({
+      apiToken: 'env-token',
+      defaultWorkspaceId: 333,
+      defaultProjectId: undefined,
+    });
+  });
+
+  it('fails when the selected settings file is missing', () => {
+    const home = makeHome(JSON.stringify({ apiToken: 'file-token' }));
+    const missing = join(home, 'nope.json');
+
+    expect(() => loadCredentials({}, home, missing)).toThrow(/Settings file not found/);
+    expect(() => loadCredentials({}, home, missing)).toThrow('nope.json');
+  });
+
+  it('rejects malformed JSON in the settings file', () => {
+    const home = makeHome(JSON.stringify({ apiToken: 'file-token' }));
+    const settings = makeSettings('{ not json');
+
+    expect(() => loadCredentials({}, home, settings)).toThrow(/Invalid JSON in .*settings\.json/);
+  });
+
+  it('rejects a settings document that is not an object', () => {
+    const home = makeHome(JSON.stringify({ apiToken: 'file-token' }));
+    const settings = makeSettings('["workspaceId"]');
+
+    expect(() => loadCredentials({}, home, settings)).toThrow(/expected a JSON object/);
+  });
+
+  it('rejects a settings id that is not a positive integer', () => {
+    const home = makeHome(JSON.stringify({ apiToken: 'file-token' }));
+    const badWorkspace = makeSettings(JSON.stringify({ workspaceId: 'abc' }));
+    const badProject = makeSettings(JSON.stringify({ projectId: -1 }));
+    const emptyProject = makeSettings(JSON.stringify({ projectId: {} }));
+
+    expect(() => loadCredentials({}, home, badWorkspace)).toThrow(/Invalid workspaceId/);
+    expect(() => loadCredentials({}, home, badProject)).toThrow(/Invalid projectId/);
+    expect(() => loadCredentials({}, home, emptyProject)).toThrow(/Invalid projectId/);
   });
 });

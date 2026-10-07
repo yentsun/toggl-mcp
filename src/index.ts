@@ -3,7 +3,12 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { config } from 'dotenv';
 import { z } from 'zod';
-import { CredentialsError, credentialsPath, loadCredentials } from './credentials.js';
+import {
+  CredentialsError,
+  credentialsPath,
+  loadCredentials,
+  settingsPathFromArgv,
+} from './credentials.js';
 import { maskEmail, publicProjects, publicWorkspaces } from './format.js';
 import { collectReportEntries } from './report.js';
 import { TogglAPI, TogglAPIError } from './toggl-api.js';
@@ -28,7 +33,7 @@ import {
   summarizeByProject,
 } from './utils.js';
 
-const VERSION = '0.5.0';
+const VERSION = '0.6.0';
 
 const argv = process.argv.slice(2);
 if (argv.includes('--version') || argv.includes('-v')) {
@@ -38,10 +43,13 @@ if (argv.includes('--version') || argv.includes('-v')) {
 if (argv.includes('--help') || argv.includes('-h')) {
   console.error(
     `yt-toggl-mcp - Toggl Track MCP server\n\n` +
-      `Usage: node dist/index.js [--help] [--version]\n\n` +
+      `Usage: node dist/index.js [--settings <file>] [--help] [--version]\n\n` +
       `Credentials (TOGGL_API_KEY overrides the file token):\n` +
       `  ${credentialsPath()}\n` +
       `    {"apiToken": "<toggl token>", "workspaceId": 1234567, "projectId": 216478744}\n\n` +
+      `Settings (--settings; overrides workspaceId/projectId, never the token):\n` +
+      `    {"workspaceId": 1234567, "projectId": 216478744}\n\n` +
+      `Precedence: explicit tool arguments > --settings file > credentials file.\n\n` +
       `Environment:\n` +
       `  TOGGL_API_KEY                Toggl Track API token\n` +
       `  TOGGL_CACHE_TTL              Metadata cache TTL in ms (default: 3600000)\n`
@@ -53,7 +61,7 @@ config({ quiet: true });
 
 let credentials;
 try {
-  credentials = loadCredentials();
+  credentials = loadCredentials(process.env, undefined, settingsPathFromArgv(argv));
 } catch (error) {
   console.error(error instanceof CredentialsError ? error.message : String(error));
   process.exit(1);
@@ -90,7 +98,7 @@ function skippedDefaultProject(scope: EntryScope): Record<string, unknown> {
   if (scope.defaultProjectSkipped !== true) return {};
   const notice =
     'The configured projectId does not belong to this workspace, so the entry has no project. ' +
-    'Update or remove projectId in the credentials file, or pass project_id explicitly.';
+    'Update or remove projectId in the configuration file, or pass project_id explicitly.';
   console.warn(`yt-toggl-mcp: ${notice}`);
   return { notice };
 }

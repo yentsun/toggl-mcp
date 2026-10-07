@@ -256,7 +256,7 @@ describe('resolveEntryScope', () => {
 
     expect(error).toBeInstanceOf(ProjectValidationError);
     expect(error).toMatchObject({ code: 'INVALID_PROJECT_ID', source: 'configuration' });
-    expect((error as Error).message).toMatch(/credentials file/);
+    expect((error as Error).message).toMatch(/configuration file/);
   });
 
   it('does not apply the configured project in another workspace', async () => {
