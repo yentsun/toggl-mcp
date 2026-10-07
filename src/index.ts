@@ -38,7 +38,7 @@ if (argv.includes('--help') || argv.includes('-h')) {
   console.error(
     `yt-toggl-mcp - Toggl Track MCP server\n\n` +
       `Usage: node dist/index.js [--help] [--version]\n\n` +
-      `Credentials (env vars win over the file):\n` +
+      `Credentials (TOGGL_API_KEY overrides the file token):\n` +
       `  ${credentialsPath()}\n` +
       `    {"apiToken": "<toggl token>", "workspaceId": 1234567, "projectId": 216478744}\n\n` +
       `Environment:\n` +
@@ -108,6 +108,8 @@ function fail(error: unknown): ToolResult {
     payload.project_id = error.projectId;
     payload.workspace_id = error.workspaceId;
     payload.available_projects = publicProjects(error.availableProjects);
+    // Lets a client tell a bad tool argument from a stale credentials file.
+    payload.source = error.source;
   }
 
   return { isError: true, ...ok(payload) };

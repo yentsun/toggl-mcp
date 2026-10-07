@@ -28,17 +28,25 @@ export class WorkspaceValidationError extends Error {
   }
 }
 
+/** Where a project id came from, so a stale one can point at the right fix. */
+export type ProjectIdSource = 'argument' | 'configuration';
+
 export class ProjectValidationError extends Error {
   readonly code = 'INVALID_PROJECT_ID';
 
   constructor(
     readonly projectId: number,
     readonly workspaceId: number,
-    readonly availableProjects: PublicProject[]
+    readonly availableProjects: PublicProject[],
+    readonly source: ProjectIdSource = 'argument'
   ) {
     super(
-      `project_id ${projectId} does not belong to workspace ${workspaceId}. ` +
-        'Use toggl_list_projects for that workspace and pass one of its project ids.'
+      source === 'configuration'
+        ? `The projectId ${projectId} configured in the credentials file does not belong to ` +
+            `workspace ${workspaceId}. Use toggl_list_projects for that workspace to pick a valid ` +
+            'id, or remove the projectId key.'
+        : `project_id ${projectId} does not belong to workspace ${workspaceId}. ` +
+            'Use toggl_list_projects for that workspace and pass one of its project ids.'
     );
     this.name = 'ProjectValidationError';
   }
@@ -95,7 +103,8 @@ export async function resolveWorkspaceId(
 export async function resolveProjectId(
   api: TogglAPI,
   workspaceId: number,
-  projectId?: number
+  projectId?: number,
+  source: ProjectIdSource = 'argument'
 ): Promise<number | undefined> {
   if (projectId === undefined) return undefined;
 
@@ -111,7 +120,7 @@ export async function resolveProjectId(
     refresh: cached !== undefined,
   });
   if (!projects.some((project) => project.id === projectId)) {
-    throw new ProjectValidationError(projectId, workspaceId, publicProjects(projects));
+    throw new ProjectValidationError(projectId, workspaceId, publicProjects(projects), source);
   }
   return projectId;
 }
@@ -143,10 +152,24 @@ export interface EntryScope {
 }
 
 /**
+ * The configured project to fall back on. A configured project belongs to the
+ * configured workspace, so it is offered only for an entry that lands there.
+ * Without a configured workspace it is offered to whatever workspace was
+ * resolved, and the membership check decides whether it fits.
+ */
+function configuredProjectIdFor(
+  workspaceId: number,
+  defaults: Partial<EntryScope>
+): number | undefined {
+  if (defaults.projectId === undefined) return undefined;
+  if (defaults.workspaceId === undefined) return defaults.projectId;
+  return workspaceId === defaults.workspaceId ? defaults.projectId : undefined;
+}
+
+/**
  * Resolve and verify the workspace/project pair before creating a time entry.
- * A configured default project belongs to the configured default workspace, so
- * it applies only while the caller stays in that workspace: naming a different
- * workspace_id must not inherit a project that lives elsewhere.
+ * project_id always wins; otherwise the configured project applies only where
+ * it belongs, so an entry in another workspace never inherits it.
  */
 export async function resolveEntryScope(
   api: TogglAPI,
@@ -155,13 +178,26 @@ export async function resolveEntryScope(
 ): Promise<EntryScope> {
   const workspaceId = await resolveWorkspaceId(api, input.workspace_id, defaults.workspaceId);
 
-  const inheritsDefaultProject =
-    input.workspace_id === undefined || input.workspace_id === defaults.workspaceId;
-  const projectId = await resolveProjectId(
-    api,
-    workspaceId,
-    input.project_id ?? (inheritsDefaultProject ? defaults.projectId : undefined)
-  );
+  if (input.project_id !== undefined) {
+    return { workspaceId, projectId: await resolveProjectId(api, workspaceId, input.project_id) };
+  }
 
-  return { workspaceId, projectId };
+  const configuredProjectId = configuredProjectIdFor(workspaceId, defaults);
+  if (configuredProjectId === undefined) return { workspaceId, projectId: undefined };
+
+  try {
+    return {
+      workspaceId,
+      projectId: await resolveProjectId(api, workspaceId, configuredProjectId, 'configuration'),
+    };
+  } catch (error) {
+    // Without a configured workspace the project is only a hint, so one that
+    // does not fit where the entry landed is ignored rather than fatal. With a
+    // configured workspace the id is authoritative and a mismatch means stale
+    // configuration that must be surfaced.
+    if (defaults.workspaceId !== undefined || !(error instanceof ProjectValidationError)) {
+      throw error;
+    }
+    return { workspaceId, projectId: undefined };
+  }
 }

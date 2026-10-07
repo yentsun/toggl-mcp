@@ -246,12 +246,16 @@ describe('resolveEntryScope', () => {
     ).resolves.toEqual({ workspaceId: 7, projectId: 300 });
   });
 
-  it('rejects a configured project that does not belong to the workspace', async () => {
+  it('rejects a stale configured project with advice naming the credentials file', async () => {
     const api = fakeApi([workspace], projects);
 
-    await expect(
-      resolveEntryScope(api, {}, { workspaceId: 7, projectId: 301 })
-    ).rejects.toBeInstanceOf(ProjectValidationError);
+    const error = await resolveEntryScope(api, {}, { workspaceId: 7, projectId: 301 }).catch(
+      (caught: unknown) => caught
+    );
+
+    expect(error).toBeInstanceOf(ProjectValidationError);
+    expect(error).toMatchObject({ code: 'INVALID_PROJECT_ID', source: 'configuration' });
+    expect((error as Error).message).toMatch(/credentials file/);
   });
 
   it('does not apply the configured project in another workspace', async () => {
@@ -268,7 +272,16 @@ describe('resolveEntryScope', () => {
     expect(api.getProjects).not.toHaveBeenCalled();
   });
 
-  it('does not apply a project-only default to an explicitly chosen workspace', async () => {
+  it('applies a project-only default in the workspace that owns it', async () => {
+    const api = fakeApi([workspace], projects);
+
+    await expect(resolveEntryScope(api, { workspace_id: 7 }, { projectId: 300 })).resolves.toEqual({
+      workspaceId: 7,
+      projectId: 300,
+    });
+  });
+
+  it('ignores a project-only default that does not fit the resolved workspace', async () => {
     const other: Workspace = { id: 9, name: 'nine' };
     const api = {
       getWorkspaces: vi.fn().mockResolvedValue([workspace, other]),
@@ -280,7 +293,19 @@ describe('resolveEntryScope', () => {
       workspaceId: 9,
       projectId: undefined,
     });
-    expect(api.getProjects).not.toHaveBeenCalled();
+    expect(api.getProjects).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not swallow a project lookup failure when the default is only a hint', async () => {
+    const api = {
+      getWorkspaces: vi.fn().mockResolvedValue([workspace]),
+      getCachedProjects: vi.fn().mockReturnValue(undefined),
+      getProjects: vi.fn().mockRejectedValue(new Error('projects unavailable')),
+    } as unknown as TogglAPI;
+
+    await expect(resolveEntryScope(api, {}, { projectId: 300 })).rejects.toThrow(
+      'projects unavailable'
+    );
   });
 
   it('still resolves no project when none is configured', async () => {
