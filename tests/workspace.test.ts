@@ -3,7 +3,7 @@ import {
   ProjectValidationError,
   WorkspaceResolutionError,
   WorkspaceValidationError,
-  parseWorkspaceId,
+  parseId,
   resolveEntryScope,
   resolveProjectId,
   resolveWorkspaceForEntry,
@@ -30,20 +30,20 @@ const projects: Project[] = [
   { id: 300, workspace_id: 7, client_id: null, name: 'alpha', active: true },
 ];
 
-describe('parseWorkspaceId', () => {
+describe('parseId', () => {
   it('accepts positive integers as number or numeric string', () => {
-    expect(parseWorkspaceId(42)).toBe(42);
-    expect(parseWorkspaceId('42')).toBe(42);
-    expect(parseWorkspaceId(' 42 ')).toBe(42);
+    expect(parseId(42)).toBe(42);
+    expect(parseId('42')).toBe(42);
+    expect(parseId(' 42 ')).toBe(42);
   });
 
   it('rejects invalid values', () => {
-    expect(parseWorkspaceId(0)).toBeUndefined();
-    expect(parseWorkspaceId(-1)).toBeUndefined();
-    expect(parseWorkspaceId('abc')).toBeUndefined();
-    expect(parseWorkspaceId('')).toBeUndefined();
-    expect(parseWorkspaceId(undefined)).toBeUndefined();
-    expect(parseWorkspaceId(1.5)).toBeUndefined();
+    expect(parseId(0)).toBeUndefined();
+    expect(parseId(-1)).toBeUndefined();
+    expect(parseId('abc')).toBeUndefined();
+    expect(parseId('')).toBeUndefined();
+    expect(parseId(undefined)).toBeUndefined();
+    expect(parseId(1.5)).toBeUndefined();
   });
 });
 
@@ -145,6 +145,7 @@ describe('resolveProjectId', () => {
       code: 'INVALID_PROJECT_ID',
       projectId: 301,
       workspaceId: 7,
+      source: 'argument',
       availableProjects: [{ id: 300, name: 'alpha' }],
     });
     expect(api.getProjects).toHaveBeenCalledTimes(1);
@@ -218,6 +219,102 @@ describe('resolveEntryScope', () => {
     await expect(
       resolveEntryScope(api, { workspace_id: 4242, project_id: 300 })
     ).rejects.toBeInstanceOf(WorkspaceValidationError);
+    expect(api.getProjects).not.toHaveBeenCalled();
+  });
+
+  it('uses the configured project when project_id is omitted', async () => {
+    const api = fakeApi([workspace], projects);
+
+    await expect(resolveEntryScope(api, {}, { workspaceId: 7, projectId: 300 })).resolves.toEqual({
+      workspaceId: 7,
+      projectId: 300,
+    });
+  });
+
+  it('uses the configured project when the caller repeats the configured workspace', async () => {
+    const api = fakeApi([workspace], projects);
+
+    await expect(
+      resolveEntryScope(api, { workspace_id: 7 }, { workspaceId: 7, projectId: 300 })
+    ).resolves.toEqual({ workspaceId: 7, projectId: 300 });
+  });
+
+  it('prefers an explicit project over the configured one', async () => {
+    const api = fakeApi([workspace], projects);
+
+    await expect(
+      resolveEntryScope(api, { project_id: 300 }, { workspaceId: 7, projectId: 999 })
+    ).resolves.toEqual({ workspaceId: 7, projectId: 300 });
+  });
+
+  it('rejects a stale configured project with advice naming the credentials file', async () => {
+    const api = fakeApi([workspace], projects);
+
+    const error = await resolveEntryScope(api, {}, { workspaceId: 7, projectId: 301 }).catch(
+      (caught: unknown) => caught
+    );
+
+    expect(error).toBeInstanceOf(ProjectValidationError);
+    expect(error).toMatchObject({ code: 'INVALID_PROJECT_ID', source: 'configuration' });
+    expect((error as Error).message).toMatch(/credentials file/);
+  });
+
+  it('does not apply the configured project in another workspace', async () => {
+    const other: Workspace = { id: 9, name: 'nine' };
+    const api = {
+      getWorkspaces: vi.fn().mockResolvedValue([workspace, other]),
+      getCachedProjects: vi.fn().mockReturnValue(undefined),
+      getProjects: vi.fn().mockResolvedValue([]),
+    } as unknown as TogglAPI;
+
+    await expect(
+      resolveEntryScope(api, { workspace_id: 9 }, { workspaceId: 7, projectId: 300 })
+    ).resolves.toStrictEqual({ workspaceId: 9, projectId: undefined });
+    expect(api.getProjects).not.toHaveBeenCalled();
+  });
+
+  it('applies a project-only default in the workspace that owns it', async () => {
+    const api = fakeApi([workspace], projects);
+
+    await expect(resolveEntryScope(api, { workspace_id: 7 }, { projectId: 300 })).resolves.toEqual({
+      workspaceId: 7,
+      projectId: 300,
+    });
+  });
+
+  it('flags a project-only default that does not fit the resolved workspace', async () => {
+    const other: Workspace = { id: 9, name: 'nine' };
+    const api = {
+      getWorkspaces: vi.fn().mockResolvedValue([workspace, other]),
+      getCachedProjects: vi.fn().mockReturnValue(undefined),
+      getProjects: vi.fn().mockResolvedValue([]),
+    } as unknown as TogglAPI;
+
+    await expect(
+      resolveEntryScope(api, { workspace_id: 9 }, { projectId: 300 })
+    ).resolves.toStrictEqual({ workspaceId: 9, projectId: undefined, defaultProjectSkipped: true });
+    expect(api.getProjects).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not swallow a project lookup failure when the default is only a hint', async () => {
+    const api = {
+      getWorkspaces: vi.fn().mockResolvedValue([workspace]),
+      getCachedProjects: vi.fn().mockReturnValue(undefined),
+      getProjects: vi.fn().mockRejectedValue(new Error('projects unavailable')),
+    } as unknown as TogglAPI;
+
+    await expect(resolveEntryScope(api, {}, { projectId: 300 })).rejects.toThrow(
+      'projects unavailable'
+    );
+  });
+
+  it('still resolves no project when none is configured', async () => {
+    const api = fakeApi([workspace], projects);
+
+    await expect(resolveEntryScope(api, {})).resolves.toStrictEqual({
+      workspaceId: 7,
+      projectId: undefined,
+    });
     expect(api.getProjects).not.toHaveBeenCalled();
   });
 });

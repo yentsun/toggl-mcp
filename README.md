@@ -26,6 +26,11 @@ stripped from every response and user emails are masked.
 | `toggl_stop_timer` | Stop the running timer (or a specific `entry_id`). |
 | `toggl_report` | Total time for a range, grouped by project, sorted by hours. |
 
+`workspace_id` defaults to the configured workspace and `project_id` defaults to the configured
+project; explicit arguments always win. The default project is used only where it belongs:
+tracking in another workspace never inherits it, and with no `workspaceId` configured it is
+applied only if the resolved workspace owns that project.
+
 `period` accepts `today`, `yesterday`, `week`, `lastWeek`, `month`, `lastMonth`. Ranges are
 interpreted in local time and `end_date` is inclusive at the tool boundary. `since` takes unix
 seconds and, per Toggl, also returns entries deleted since that time.
@@ -41,25 +46,37 @@ retention boundary: if it reaches that boundary it returns `incomplete: true` to
 ## Configuration
 
 Credentials live in a per-tool file under your home directory, matching the other `yt-*` MCP
-servers. Environment variables take precedence, so the file is optional in CI or containers.
+servers. `TOGGL_API_KEY` may supply the token instead, so the file is optional in CI or containers.
 
 `~/.yt-toggl-mcp/credentials.json`:
 
 ```json
 {
   "apiToken": "<your token>",
-  "workspaceId": 1234567
+  "workspaceId": 1234567,
+  "projectId": 216478744
 }
 ```
 
 | Variable | Required | Default | Purpose |
 | --- | --- | --- | --- |
 | `TOGGL_API_KEY` | no | `apiToken` from the credentials file | Toggl Track API token ([track.toggl.com/profile](https://track.toggl.com/profile)). |
-| `TOGGL_DEFAULT_WORKSPACE_ID` | no | `workspaceId` from the credentials file, else auto if a single workspace | Default workspace for workspace-scoped tools. |
 | `TOGGL_CACHE_TTL` | no | `3600000` | Metadata cache TTL in ms. |
 
-A token must come from one of the two sources, otherwise the server exits with a message naming
-the file to create. `workspaceId` is optional — omit it if you only have one workspace.
+An API token must come from one of the two sources, otherwise the server exits with a message
+naming the file to create. `workspaceId` and `projectId` are file-only settings and both are
+optional: omit `workspaceId` if you only have one workspace, and omit `projectId` if you do not
+want a default project.
+
+`projectId` is used only where it belongs, and is verified against the workspace before any write,
+so an entry never lands in the wrong project. When `workspaceId` is set, the project applies while
+tracking in that workspace and a stale id fails with `INVALID_PROJECT_ID`; naming another
+`workspace_id` never inherits it. Without `workspaceId`, the project is applied when the resolved
+workspace owns it and ignored when it does not; that check costs an extra request per write, and
+the result carries a `notice` when the project was skipped.
+
+`TOGGL_DEFAULT_WORKSPACE_ID` was removed in 0.5.0; put `workspaceId` in the credentials file
+instead.
 
 ## Install
 
@@ -97,12 +114,13 @@ Write `~/.yt-toggl-mcp/credentials.json` (Windows: `C:\Users\<you>\.yt-toggl-mcp
 ```json
 {
   "apiToken": "<your token>",
-  "workspaceId": 1234567
+  "workspaceId": 1234567,
+  "projectId": 216478744
 }
 ```
 
-`workspaceId` is optional. Alternatively set `TOGGL_API_KEY` (and optionally
-`TOGGL_DEFAULT_WORKSPACE_ID`) in the environment — env vars win over the file.
+`workspaceId` and `projectId` are optional. Alternatively set `TOGGL_API_KEY` in the environment
+to supply only the token — the file still holds the defaults.
 
 **2. Register the server**
 

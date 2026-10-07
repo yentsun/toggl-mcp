@@ -11,11 +11,12 @@ import {
   ProjectValidationError,
   WorkspaceResolutionError,
   WorkspaceValidationError,
-  parseWorkspaceId,
+  parseId,
   resolveEntryScope,
   resolveProjectId,
   resolveWorkspaceForEntry,
   resolveWorkspaceId,
+  type EntryScope,
 } from './workspace.js';
 import {
   PERIODS,
@@ -27,7 +28,7 @@ import {
   summarizeByProject,
 } from './utils.js';
 
-const VERSION = '0.4.0';
+const VERSION = '0.5.0';
 
 const argv = process.argv.slice(2);
 if (argv.includes('--version') || argv.includes('-v')) {
@@ -38,12 +39,11 @@ if (argv.includes('--help') || argv.includes('-h')) {
   console.error(
     `yt-toggl-mcp - Toggl Track MCP server\n\n` +
       `Usage: node dist/index.js [--help] [--version]\n\n` +
-      `Credentials (env vars win over the file):\n` +
+      `Credentials (TOGGL_API_KEY overrides the file token):\n` +
       `  ${credentialsPath()}\n` +
-      `    {"apiToken": "<toggl token>", "workspaceId": 1234567}\n\n` +
+      `    {"apiToken": "<toggl token>", "workspaceId": 1234567, "projectId": 216478744}\n\n` +
       `Environment:\n` +
       `  TOGGL_API_KEY                Toggl Track API token\n` +
-      `  TOGGL_DEFAULT_WORKSPACE_ID   Optional default workspace id\n` +
       `  TOGGL_CACHE_TTL              Metadata cache TTL in ms (default: 3600000)\n`
   );
   process.exit(0);
@@ -60,7 +60,8 @@ try {
 }
 
 const API_KEY = credentials.apiToken;
-const DEFAULT_WORKSPACE_ID = parseWorkspaceId(credentials.defaultWorkspaceId);
+const DEFAULT_WORKSPACE_ID = parseId(credentials.defaultWorkspaceId);
+const DEFAULT_PROJECT_ID = parseId(credentials.defaultProjectId);
 const parsedTtl = Number.parseInt(process.env.TOGGL_CACHE_TTL ?? '', 10);
 const CACHE_TTL_MS = Number.isFinite(parsedTtl) ? parsedTtl : 3_600_000;
 
@@ -78,6 +79,20 @@ function ok(data: unknown): ToolResult {
       { type: 'text', text: typeof data === 'string' ? data : JSON.stringify(data, null, 2) },
     ],
   };
+}
+
+/**
+ * A configured default project that does not fit the workspace is skipped
+ * rather than fatal, so say so: the caller would otherwise only see an entry
+ * with no project. Logged to stderr too, which is the server's log channel.
+ */
+function skippedDefaultProject(scope: EntryScope): Record<string, unknown> {
+  if (scope.defaultProjectSkipped !== true) return {};
+  const notice =
+    'The configured projectId does not belong to this workspace, so the entry has no project. ' +
+    'Update or remove projectId in the credentials file, or pass project_id explicitly.';
+  console.warn(`yt-toggl-mcp: ${notice}`);
+  return { notice };
 }
 
 function fail(error: unknown): ToolResult {
@@ -108,6 +123,8 @@ function fail(error: unknown): ToolResult {
     payload.project_id = error.projectId;
     payload.workspace_id = error.workspaceId;
     payload.available_projects = publicProjects(error.availableProjects);
+    // Lets a client tell a bad tool argument from a stale credentials file.
+    payload.source = error.source;
   }
 
   return { isError: true, ...ok(payload) };
@@ -257,7 +274,7 @@ server.registerTool(
   {
     title: 'Create a time entry',
     description:
-      'Create a completed or running time entry. Provide stop (or duration) for a completed entry; omit both to start a running timer.',
+      'Create a completed or running time entry. Provide stop (or duration) for a completed entry; omit both to start a running timer. project_id defaults to the configured project.',
     inputSchema: {
       description: z.string().optional(),
       project_id: z.number().int().positive().optional(),
@@ -275,7 +292,7 @@ server.registerTool(
       const scope = await resolveEntryScope(
         api,
         { workspace_id, project_id },
-        DEFAULT_WORKSPACE_ID
+        { workspaceId: DEFAULT_WORKSPACE_ID, projectId: DEFAULT_PROJECT_ID }
       );
       const entry = await api.createTimeEntry(scope.workspaceId, {
         description,
@@ -287,7 +304,7 @@ server.registerTool(
         stop,
         duration,
       });
-      return ok({ created: true, entry });
+      return ok({ created: true, entry, ...skippedDefaultProject(scope) });
     } catch (error) {
       return fail(error);
     }
@@ -371,7 +388,7 @@ server.registerTool(
   {
     title: 'Start timer',
     description:
-      'Start a new running time entry with an optional description, project, and tags. Use this to switch tasks; do not stop the running entry first unless the caller explicitly asked to stop tracking.',
+      'Start a new running time entry with an optional description, project, and tags. project_id defaults to the configured project. Use this to switch tasks; do not stop the running entry first unless the caller explicitly asked to stop tracking.',
     inputSchema: {
       description: z.string().optional(),
       project_id: z.number().int().positive().optional(),
@@ -385,7 +402,7 @@ server.registerTool(
       const scope = await resolveEntryScope(
         api,
         { workspace_id, project_id },
-        DEFAULT_WORKSPACE_ID
+        { workspaceId: DEFAULT_WORKSPACE_ID, projectId: DEFAULT_PROJECT_ID }
       );
       const entry = await api.startTimeEntry(scope.workspaceId, {
         description,
@@ -393,7 +410,7 @@ server.registerTool(
         tags,
         billable,
       });
-      return ok({ started: true, entry });
+      return ok({ started: true, entry, ...skippedDefaultProject(scope) });
     } catch (error) {
       return fail(error);
     }
@@ -439,7 +456,7 @@ server.registerTool(
   'toggl_list_projects',
   {
     title: 'List projects',
-    description: 'List projects in a workspace (defaults to TOGGL_DEFAULT_WORKSPACE_ID).',
+    description: 'List projects in a workspace (defaults to the configured workspace).',
     inputSchema: { workspace_id: workspaceIdSchema },
   },
   async ({ workspace_id }) => {
@@ -456,7 +473,7 @@ server.registerTool(
   'toggl_list_clients',
   {
     title: 'List clients',
-    description: 'List clients in a workspace (defaults to TOGGL_DEFAULT_WORKSPACE_ID).',
+    description: 'List clients in a workspace (defaults to the configured workspace).',
     inputSchema: { workspace_id: workspaceIdSchema },
   },
   async ({ workspace_id }) => {
@@ -473,7 +490,7 @@ server.registerTool(
   'toggl_list_tags',
   {
     title: 'List tags',
-    description: 'List tags in a workspace (defaults to TOGGL_DEFAULT_WORKSPACE_ID).',
+    description: 'List tags in a workspace (defaults to the configured workspace).',
     inputSchema: { workspace_id: workspaceIdSchema },
   },
   async ({ workspace_id }) => {

@@ -8,6 +8,7 @@ export const CREDENTIALS_FILENAME = 'credentials.json';
 export interface Credentials {
   apiToken: string;
   defaultWorkspaceId?: string | number;
+  defaultProjectId?: string | number;
 }
 
 export class CredentialsError extends Error {
@@ -49,15 +50,16 @@ function textValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
-function workspaceValue(value: unknown): string | number | undefined {
+function idValue(value: unknown): string | number | undefined {
   if (typeof value === 'number') return Number.isFinite(value) ? value : undefined;
   return textValue(value);
 }
 
 /**
  * Resolve credentials the same way the other yt-* MCP servers do: a per-tool
- * file under the user's home directory. Environment variables take precedence
- * so the server still works in CI or without a config file on disk.
+ * file under the user's home directory. The token may also come from
+ * TOGGL_API_KEY so the server still works in CI or in a container without a
+ * config file; the workspace and project defaults are file-only settings.
  */
 export function loadCredentials(
   env: NodeJS.ProcessEnv = process.env,
@@ -76,7 +78,7 @@ export function loadCredentials(
 
   return {
     apiToken,
-    defaultWorkspaceId:
-      workspaceValue(env.TOGGL_DEFAULT_WORKSPACE_ID) ?? workspaceValue(file.workspaceId),
+    defaultWorkspaceId: idValue(file.workspaceId),
+    defaultProjectId: idValue(file.projectId),
   };
 }
