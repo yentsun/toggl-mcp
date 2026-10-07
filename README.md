@@ -99,8 +99,9 @@ Precedence, highest first:
 3. `~/.yt-toggl-mcp/credentials.json`
 
 Each key falls back on its own: a settings file with only `projectId` keeps the credentials file's
-`workspaceId`. Without `--settings` nothing changes. A missing or malformed settings file, or an id
-in it that is not a positive integer, stops the server with the path and key named.
+`workspaceId`, and a `null` value counts as unset. Without `--settings` nothing changes. A missing
+or malformed settings file, or an id that is not a positive integer, stops the server with the path
+and key named.
 
 `TOGGL_DEFAULT_WORKSPACE_ID` was removed in 0.5.0; put `workspaceId` in the credentials file
 instead.

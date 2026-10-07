@@ -223,14 +223,27 @@ describe('loadCredentials with a project settings file', () => {
     });
   });
 
-  it('accepts settings ids stored as numeric strings', () => {
+  it('normalizes settings ids stored as numeric strings', () => {
     const home = makeHome(JSON.stringify({ apiToken: 'file-token', workspaceId: 111 }));
     const settings = makeSettings(JSON.stringify({ workspaceId: '333', projectId: '444' }));
 
     expect(loadCredentials({}, home, settings)).toEqual({
       apiToken: 'file-token',
-      defaultWorkspaceId: '333',
-      defaultProjectId: '444',
+      defaultWorkspaceId: 333,
+      defaultProjectId: 444,
+    });
+  });
+
+  it('treats a null settings value as unset', () => {
+    const home = makeHome(
+      JSON.stringify({ apiToken: 'file-token', workspaceId: 111, projectId: 222 })
+    );
+    const settings = makeSettings(JSON.stringify({ workspaceId: null, projectId: 999 }));
+
+    expect(loadCredentials({}, home, settings)).toEqual({
+      apiToken: 'file-token',
+      defaultWorkspaceId: 111,
+      defaultProjectId: 999,
     });
   });
 
@@ -286,9 +299,17 @@ describe('loadCredentials with a project settings file', () => {
     const badWorkspace = makeSettings(JSON.stringify({ workspaceId: 'abc' }));
     const badProject = makeSettings(JSON.stringify({ projectId: -1 }));
     const emptyProject = makeSettings(JSON.stringify({ projectId: {} }));
+    const zeroWorkspace = makeSettings(JSON.stringify({ workspaceId: 0 }));
+    // Accepted by Number() but not by parseId, so it must not slip through to be
+    // silently dropped later.
+    const exponentWorkspace = makeSettings(JSON.stringify({ workspaceId: '1e3' }));
+    const decimalProject = makeSettings(JSON.stringify({ projectId: '12.0' }));
 
     expect(() => loadCredentials({}, home, badWorkspace)).toThrow(/Invalid workspaceId/);
     expect(() => loadCredentials({}, home, badProject)).toThrow(/Invalid projectId/);
     expect(() => loadCredentials({}, home, emptyProject)).toThrow(/Invalid projectId/);
+    expect(() => loadCredentials({}, home, zeroWorkspace)).toThrow(/Invalid workspaceId/);
+    expect(() => loadCredentials({}, home, exponentWorkspace)).toThrow(/Invalid workspaceId/);
+    expect(() => loadCredentials({}, home, decimalProject)).toThrow(/Invalid projectId/);
   });
 });

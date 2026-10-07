@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { parseId } from './workspace.js';
 
 export const CREDENTIALS_DIRNAME = '.yt-toggl-mcp';
 export const CREDENTIALS_FILENAME = 'credentials.json';
@@ -13,8 +14,8 @@ export interface Credentials {
 
 /** Workspace/project defaults from a project-local settings file. */
 interface SettingsDefaults {
-  workspaceId?: string | number;
-  projectId?: string | number;
+  workspaceId?: number;
+  projectId?: number;
 }
 
 export class CredentialsError extends Error {
@@ -101,13 +102,14 @@ function idValue(value: unknown): string | number | undefined {
 /**
  * A settings id is authoritative, so reject one that cannot be an id instead of
  * ignoring it: a typo would otherwise silently change which project is tracked.
+ * parseId is the same check the server applies later, so anything accepted here
+ * is used rather than dropped. Null counts as unset, like the credentials file.
  */
-function settingsId(value: unknown, key: string, filePath: string): string | number | undefined {
-  if (value === undefined) return undefined;
+function settingsId(value: unknown, key: string, filePath: string): number | undefined {
+  if (value === undefined || value === null) return undefined;
 
-  const id = idValue(value);
-  const numeric = typeof id === 'number' ? id : id === undefined ? Number.NaN : Number(id);
-  if (!Number.isInteger(numeric) || numeric <= 0) {
+  const id = parseId(value);
+  if (id === undefined) {
     throw new CredentialsError(`Invalid ${key} in ${filePath}: expected a positive integer id.`);
   }
   return id;
@@ -131,7 +133,7 @@ function loadSettings(filePath: string): SettingsDefaults {
  * selected with `--settings` when one is given, and otherwise from the user
  * credentials file; the settings file never supplies the token. Each key falls
  * back on its own, so a settings file with only `projectId` keeps the user
- * file's `workspaceId`.
+ * file's `workspaceId`. A `null` value counts as unset.
  */
 export function loadCredentials(
   env: NodeJS.ProcessEnv = process.env,
