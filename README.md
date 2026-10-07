@@ -75,6 +75,34 @@ tracking in that workspace and a stale id fails with `INVALID_PROJECT_ID`; namin
 workspace owns it and ignored when it does not; that check costs an extra request per write, and
 the result carries a `notice` when the project was skipped.
 
+### Project-local defaults
+
+Pass `--settings <file>` on the MCP command to select a project-local JSON file that overrides
+`workspaceId` and `projectId` for that project only, without duplicating the API token:
+
+```json
+{
+  "workspaceId": 1234567,
+  "projectId": 7654321
+}
+```
+
+The token always comes from `TOGGL_API_KEY` or the credentials file; an `apiToken` key in the
+settings file is ignored. A relative path resolves against the server's working directory, and the
+file is read once at startup. Keep the file out of version control so no Toggl ids or personal
+tracking defaults appear in tracked repository files.
+
+Precedence, highest first:
+
+1. explicit tool arguments (`workspace_id`, `project_id`)
+2. the `--settings` file
+3. `~/.yt-toggl-mcp/credentials.json`
+
+Each key falls back on its own: a settings file with only `projectId` keeps the credentials file's
+`workspaceId`, and a `null` value counts as unset. Without `--settings` nothing changes. A missing
+or malformed settings file, or an id that is not a positive integer, stops the server with the path
+and key named.
+
 `TOGGL_DEFAULT_WORKSPACE_ID` was removed in 0.5.0; put `workspaceId` in the credentials file
 instead.
 
@@ -102,8 +130,9 @@ Any MCP client that speaks stdio works. Generic client config:
 }
 ```
 
-`yt-toggl-mcp --help` prints the credential path and the environment variables; `--version` prints
-the version. Both write to stderr, since stdout carries the MCP protocol.
+`yt-toggl-mcp --help` prints the credential path, the `--settings` precedence, and the environment
+variables; `--version` prints the version. Both write to stderr, since stdout carries the MCP
+protocol.
 
 ### opencode
 
@@ -140,6 +169,16 @@ Add this to `~/.config/opencode/opencode.jsonc` (Windows:
 
 No `environment` block is needed: the server reads its own credentials file, like `yt-gmail-mcp`
 and `yt-zoho-mcp`.
+
+To give one project its own defaults without touching the user-wide file, add `--settings` pointing
+at an ignored project file:
+
+```jsonc
+"command": ["npx", "-y", "yt-toggl-mcp", "--settings", ".yt-toggl.json"]
+```
+
+`.yt-toggl.json` then holds only `{"workspaceId": 1234567, "projectId": 7654321}`; the token still
+comes from the credentials file.
 
 **3. Restart opencode**
 

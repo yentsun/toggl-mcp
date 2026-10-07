@@ -42,7 +42,7 @@ export class ProjectValidationError extends Error {
   ) {
     super(
       source === 'configuration'
-        ? `The projectId ${projectId} configured in the credentials file does not belong to ` +
+        ? `The projectId ${projectId} configured in the configuration file does not belong to ` +
             `workspace ${workspaceId}. Use toggl_list_projects for that workspace to pick a valid ` +
             'id, or remove the projectId key.'
         : `project_id ${projectId} does not belong to workspace ${workspaceId}. ` +
