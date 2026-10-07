@@ -35,57 +35,76 @@ describe('credentialsPath', () => {
 });
 
 describe('loadCredentials', () => {
-  it('reads the token and workspace id from the credentials file', () => {
-    const home = makeHome(JSON.stringify({ apiToken: 'file-token', workspaceId: 1835443 }));
+  it('reads the token, workspace id and project id from the credentials file', () => {
+    const home = makeHome(
+      JSON.stringify({ apiToken: 'file-token', workspaceId: 1835443, projectId: 216478744 })
+    );
 
     expect(loadCredentials({}, home)).toEqual({
       apiToken: 'file-token',
       defaultWorkspaceId: 1835443,
+      defaultProjectId: 216478744,
     });
   });
 
-  it('trims a padded token and accepts a workspace id stored as a string', () => {
-    const home = makeHome(JSON.stringify({ apiToken: '  file-token  ', workspaceId: '12345' }));
+  it('trims a padded token and accepts ids stored as strings', () => {
+    const home = makeHome(
+      JSON.stringify({ apiToken: '  file-token  ', workspaceId: '12345', projectId: '67890' })
+    );
 
     expect(loadCredentials({}, home)).toEqual({
       apiToken: 'file-token',
       defaultWorkspaceId: '12345',
+      defaultProjectId: '67890',
     });
   });
 
-  it('lets environment variables override the file', () => {
-    const home = makeHome(JSON.stringify({ apiToken: 'file-token', workspaceId: 111 }));
-
-    expect(
-      loadCredentials({ TOGGL_API_KEY: 'env-token', TOGGL_DEFAULT_WORKSPACE_ID: '222' }, home)
-    ).toEqual({ apiToken: 'env-token', defaultWorkspaceId: '222' });
-  });
-
-  it('falls back to the file workspace id when only the token comes from the environment', () => {
+  it('lets the environment token override the file token, keeping the file defaults', () => {
     const home = makeHome(JSON.stringify({ apiToken: 'file-token', workspaceId: 111 }));
 
     expect(loadCredentials({ TOGGL_API_KEY: 'env-token' }, home)).toEqual({
       apiToken: 'env-token',
       defaultWorkspaceId: 111,
+      defaultProjectId: undefined,
     });
   });
 
-  it('ignores blank environment variables', () => {
+  it('ignores a blank environment token', () => {
     const home = makeHome(JSON.stringify({ apiToken: 'file-token', workspaceId: 111 }));
 
-    expect(loadCredentials({ TOGGL_API_KEY: '   ', TOGGL_DEFAULT_WORKSPACE_ID: '' }, home)).toEqual({
+    expect(loadCredentials({ TOGGL_API_KEY: '   ' }, home)).toEqual({
       apiToken: 'file-token',
       defaultWorkspaceId: 111,
+      defaultProjectId: undefined,
     });
   });
 
-  it('returns no workspace id when none is configured', () => {
+  it('returns no defaults when none are configured', () => {
     const home = makeHome(JSON.stringify({ apiToken: 'file-token' }));
 
     expect(loadCredentials({}, home)).toEqual({
       apiToken: 'file-token',
       defaultWorkspaceId: undefined,
+      defaultProjectId: undefined,
     });
+  });
+
+  it('ignores default ids that are neither numbers nor strings', () => {
+    const home = makeHome(
+      JSON.stringify({ apiToken: 'file-token', workspaceId: {}, projectId: true })
+    );
+
+    expect(loadCredentials({}, home)).toEqual({
+      apiToken: 'file-token',
+      defaultWorkspaceId: undefined,
+      defaultProjectId: undefined,
+    });
+  });
+
+  it('ignores a blank project id', () => {
+    const home = makeHome(JSON.stringify({ apiToken: 'file-token', projectId: '   ' }));
+
+    expect(loadCredentials({}, home).defaultProjectId).toBeUndefined();
   });
 
   it('names the file to create when no token is configured anywhere', () => {

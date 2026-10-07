@@ -44,7 +44,8 @@ export class ProjectValidationError extends Error {
   }
 }
 
-export function parseWorkspaceId(value: unknown): number | undefined {
+/** Accept a positive integer id as a number or a numeric string; reject anything else. */
+export function parseId(value: unknown): number | undefined {
   if (typeof value === 'number') {
     return Number.isInteger(value) && value > 0 ? value : undefined;
   }
@@ -141,13 +142,17 @@ export interface EntryScope {
   projectId?: number;
 }
 
-/** Resolve and verify the workspace/project pair before creating a time entry. */
+/**
+ * Resolve and verify the workspace/project pair before creating a time entry.
+ * The configured default project applies only when project_id is omitted.
+ */
 export async function resolveEntryScope(
   api: TogglAPI,
   input: EntryScopeInput,
-  fallbackWorkspaceId?: number
+  fallbackWorkspaceId?: number,
+  fallbackProjectId?: number
 ): Promise<EntryScope> {
   const workspaceId = await resolveWorkspaceId(api, input.workspace_id, fallbackWorkspaceId);
-  const projectId = await resolveProjectId(api, workspaceId, input.project_id);
+  const projectId = await resolveProjectId(api, workspaceId, input.project_id ?? fallbackProjectId);
   return { workspaceId, projectId };
 }

@@ -3,7 +3,7 @@ import {
   ProjectValidationError,
   WorkspaceResolutionError,
   WorkspaceValidationError,
-  parseWorkspaceId,
+  parseId,
   resolveEntryScope,
   resolveProjectId,
   resolveWorkspaceForEntry,
@@ -30,20 +30,20 @@ const projects: Project[] = [
   { id: 300, workspace_id: 7, client_id: null, name: 'alpha', active: true },
 ];
 
-describe('parseWorkspaceId', () => {
+describe('parseId', () => {
   it('accepts positive integers as number or numeric string', () => {
-    expect(parseWorkspaceId(42)).toBe(42);
-    expect(parseWorkspaceId('42')).toBe(42);
-    expect(parseWorkspaceId(' 42 ')).toBe(42);
+    expect(parseId(42)).toBe(42);
+    expect(parseId('42')).toBe(42);
+    expect(parseId(' 42 ')).toBe(42);
   });
 
   it('rejects invalid values', () => {
-    expect(parseWorkspaceId(0)).toBeUndefined();
-    expect(parseWorkspaceId(-1)).toBeUndefined();
-    expect(parseWorkspaceId('abc')).toBeUndefined();
-    expect(parseWorkspaceId('')).toBeUndefined();
-    expect(parseWorkspaceId(undefined)).toBeUndefined();
-    expect(parseWorkspaceId(1.5)).toBeUndefined();
+    expect(parseId(0)).toBeUndefined();
+    expect(parseId(-1)).toBeUndefined();
+    expect(parseId('abc')).toBeUndefined();
+    expect(parseId('')).toBeUndefined();
+    expect(parseId(undefined)).toBeUndefined();
+    expect(parseId(1.5)).toBeUndefined();
   });
 });
 
@@ -218,6 +218,42 @@ describe('resolveEntryScope', () => {
     await expect(
       resolveEntryScope(api, { workspace_id: 4242, project_id: 300 })
     ).rejects.toBeInstanceOf(WorkspaceValidationError);
+    expect(api.getProjects).not.toHaveBeenCalled();
+  });
+
+  it('uses the configured project when project_id is omitted', async () => {
+    const api = fakeApi([workspace], projects);
+
+    await expect(resolveEntryScope(api, {}, undefined, 300)).resolves.toEqual({
+      workspaceId: 7,
+      projectId: 300,
+    });
+  });
+
+  it('prefers an explicit project over the configured one', async () => {
+    const api = fakeApi([workspace], projects);
+
+    await expect(resolveEntryScope(api, { project_id: 300 }, undefined, 999)).resolves.toEqual({
+      workspaceId: 7,
+      projectId: 300,
+    });
+  });
+
+  it('rejects a configured project that does not belong to the workspace', async () => {
+    const api = fakeApi([workspace], projects);
+
+    await expect(resolveEntryScope(api, {}, undefined, 301)).rejects.toBeInstanceOf(
+      ProjectValidationError
+    );
+  });
+
+  it('still resolves no project when none is configured', async () => {
+    const api = fakeApi([workspace], projects);
+
+    await expect(resolveEntryScope(api, {})).resolves.toEqual({
+      workspaceId: 7,
+      projectId: undefined,
+    });
     expect(api.getProjects).not.toHaveBeenCalled();
   });
 });

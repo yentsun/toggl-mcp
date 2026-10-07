@@ -11,7 +11,7 @@ import {
   ProjectValidationError,
   WorkspaceResolutionError,
   WorkspaceValidationError,
-  parseWorkspaceId,
+  parseId,
   resolveEntryScope,
   resolveProjectId,
   resolveWorkspaceForEntry,
@@ -27,7 +27,7 @@ import {
   summarizeByProject,
 } from './utils.js';
 
-const VERSION = '0.4.0';
+const VERSION = '0.5.0';
 
 const argv = process.argv.slice(2);
 if (argv.includes('--version') || argv.includes('-v')) {
@@ -40,10 +40,9 @@ if (argv.includes('--help') || argv.includes('-h')) {
       `Usage: node dist/index.js [--help] [--version]\n\n` +
       `Credentials (env vars win over the file):\n` +
       `  ${credentialsPath()}\n` +
-      `    {"apiToken": "<toggl token>", "workspaceId": 1234567}\n\n` +
+      `    {"apiToken": "<toggl token>", "workspaceId": 1234567, "projectId": 216478744}\n\n` +
       `Environment:\n` +
       `  TOGGL_API_KEY                Toggl Track API token\n` +
-      `  TOGGL_DEFAULT_WORKSPACE_ID   Optional default workspace id\n` +
       `  TOGGL_CACHE_TTL              Metadata cache TTL in ms (default: 3600000)\n`
   );
   process.exit(0);
@@ -60,7 +59,8 @@ try {
 }
 
 const API_KEY = credentials.apiToken;
-const DEFAULT_WORKSPACE_ID = parseWorkspaceId(credentials.defaultWorkspaceId);
+const DEFAULT_WORKSPACE_ID = parseId(credentials.defaultWorkspaceId);
+const DEFAULT_PROJECT_ID = parseId(credentials.defaultProjectId);
 const parsedTtl = Number.parseInt(process.env.TOGGL_CACHE_TTL ?? '', 10);
 const CACHE_TTL_MS = Number.isFinite(parsedTtl) ? parsedTtl : 3_600_000;
 
@@ -257,7 +257,7 @@ server.registerTool(
   {
     title: 'Create a time entry',
     description:
-      'Create a completed or running time entry. Provide stop (or duration) for a completed entry; omit both to start a running timer.',
+      'Create a completed or running time entry. Provide stop (or duration) for a completed entry; omit both to start a running timer. project_id defaults to the configured project.',
     inputSchema: {
       description: z.string().optional(),
       project_id: z.number().int().positive().optional(),
@@ -275,7 +275,8 @@ server.registerTool(
       const scope = await resolveEntryScope(
         api,
         { workspace_id, project_id },
-        DEFAULT_WORKSPACE_ID
+        DEFAULT_WORKSPACE_ID,
+        DEFAULT_PROJECT_ID
       );
       const entry = await api.createTimeEntry(scope.workspaceId, {
         description,
@@ -371,7 +372,7 @@ server.registerTool(
   {
     title: 'Start timer',
     description:
-      'Start a new running time entry with an optional description, project, and tags. Use this to switch tasks; do not stop the running entry first unless the caller explicitly asked to stop tracking.',
+      'Start a new running time entry with an optional description, project, and tags. project_id defaults to the configured project. Use this to switch tasks; do not stop the running entry first unless the caller explicitly asked to stop tracking.',
     inputSchema: {
       description: z.string().optional(),
       project_id: z.number().int().positive().optional(),
@@ -385,7 +386,8 @@ server.registerTool(
       const scope = await resolveEntryScope(
         api,
         { workspace_id, project_id },
-        DEFAULT_WORKSPACE_ID
+        DEFAULT_WORKSPACE_ID,
+        DEFAULT_PROJECT_ID
       );
       const entry = await api.startTimeEntry(scope.workspaceId, {
         description,
@@ -439,7 +441,7 @@ server.registerTool(
   'toggl_list_projects',
   {
     title: 'List projects',
-    description: 'List projects in a workspace (defaults to TOGGL_DEFAULT_WORKSPACE_ID).',
+    description: 'List projects in a workspace (defaults to the configured workspace).',
     inputSchema: { workspace_id: workspaceIdSchema },
   },
   async ({ workspace_id }) => {
@@ -456,7 +458,7 @@ server.registerTool(
   'toggl_list_clients',
   {
     title: 'List clients',
-    description: 'List clients in a workspace (defaults to TOGGL_DEFAULT_WORKSPACE_ID).',
+    description: 'List clients in a workspace (defaults to the configured workspace).',
     inputSchema: { workspace_id: workspaceIdSchema },
   },
   async ({ workspace_id }) => {
@@ -473,7 +475,7 @@ server.registerTool(
   'toggl_list_tags',
   {
     title: 'List tags',
-    description: 'List tags in a workspace (defaults to TOGGL_DEFAULT_WORKSPACE_ID).',
+    description: 'List tags in a workspace (defaults to the configured workspace).',
     inputSchema: { workspace_id: workspaceIdSchema },
   },
   async ({ workspace_id }) => {
