@@ -27,7 +27,8 @@ stripped from every response and user emails are masked.
 | `toggl_report` | Total time for a range, grouped by project, sorted by hours. |
 
 `workspace_id` defaults to the configured workspace and `project_id` defaults to the configured
-project; explicit arguments always win.
+project; explicit arguments always win. The default project applies only while tracking in the
+configured workspace, so naming a different `workspace_id` does not inherit it.
 
 `period` accepts `today`, `yesterday`, `week`, `lastWeek`, `month`, `lastMonth`. Ranges are
 interpreted in local time and `end_date` is inclusive at the tool boundary. `since` takes unix
@@ -64,8 +65,10 @@ servers. `TOGGL_API_KEY` may supply the token instead, so the file is optional i
 An API token must come from one of the two sources, otherwise the server exits with a message
 naming the file to create. `workspaceId` and `projectId` are file-only settings and both are
 optional: omit `workspaceId` if you only have one workspace, and omit `projectId` if you do not
-want a default project. `projectId` is verified against the workspace before any write, so a
-stale id fails with `INVALID_PROJECT_ID` rather than tracking against the wrong project.
+want a default project. `projectId` applies only in the configured `workspaceId`; naming another
+`workspace_id` when starting a timer does not inherit it. It is verified against the workspace
+before any write, so a stale id fails with `INVALID_PROJECT_ID` rather than tracking against the
+wrong project.
 
 `TOGGL_DEFAULT_WORKSPACE_ID` was removed in 0.5.0; put `workspaceId` in the credentials file
 instead.

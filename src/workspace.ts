@@ -144,15 +144,24 @@ export interface EntryScope {
 
 /**
  * Resolve and verify the workspace/project pair before creating a time entry.
- * The configured default project applies only when project_id is omitted.
+ * A configured default project belongs to the configured default workspace, so
+ * it applies only while the caller stays in that workspace: naming a different
+ * workspace_id must not inherit a project that lives elsewhere.
  */
 export async function resolveEntryScope(
   api: TogglAPI,
   input: EntryScopeInput,
-  fallbackWorkspaceId?: number,
-  fallbackProjectId?: number
+  defaults: Partial<EntryScope> = {}
 ): Promise<EntryScope> {
-  const workspaceId = await resolveWorkspaceId(api, input.workspace_id, fallbackWorkspaceId);
-  const projectId = await resolveProjectId(api, workspaceId, input.project_id ?? fallbackProjectId);
+  const workspaceId = await resolveWorkspaceId(api, input.workspace_id, defaults.workspaceId);
+
+  const inheritsDefaultProject =
+    input.workspace_id === undefined || input.workspace_id === defaults.workspaceId;
+  const projectId = await resolveProjectId(
+    api,
+    workspaceId,
+    input.project_id ?? (inheritsDefaultProject ? defaults.projectId : undefined)
+  );
+
   return { workspaceId, projectId };
 }

@@ -224,27 +224,63 @@ describe('resolveEntryScope', () => {
   it('uses the configured project when project_id is omitted', async () => {
     const api = fakeApi([workspace], projects);
 
-    await expect(resolveEntryScope(api, {}, undefined, 300)).resolves.toEqual({
+    await expect(resolveEntryScope(api, {}, { workspaceId: 7, projectId: 300 })).resolves.toEqual({
       workspaceId: 7,
       projectId: 300,
     });
+  });
+
+  it('uses the configured project when the caller repeats the configured workspace', async () => {
+    const api = fakeApi([workspace], projects);
+
+    await expect(
+      resolveEntryScope(api, { workspace_id: 7 }, { workspaceId: 7, projectId: 300 })
+    ).resolves.toEqual({ workspaceId: 7, projectId: 300 });
   });
 
   it('prefers an explicit project over the configured one', async () => {
     const api = fakeApi([workspace], projects);
 
-    await expect(resolveEntryScope(api, { project_id: 300 }, undefined, 999)).resolves.toEqual({
-      workspaceId: 7,
-      projectId: 300,
-    });
+    await expect(
+      resolveEntryScope(api, { project_id: 300 }, { workspaceId: 7, projectId: 999 })
+    ).resolves.toEqual({ workspaceId: 7, projectId: 300 });
   });
 
   it('rejects a configured project that does not belong to the workspace', async () => {
     const api = fakeApi([workspace], projects);
 
-    await expect(resolveEntryScope(api, {}, undefined, 301)).rejects.toBeInstanceOf(
-      ProjectValidationError
-    );
+    await expect(
+      resolveEntryScope(api, {}, { workspaceId: 7, projectId: 301 })
+    ).rejects.toBeInstanceOf(ProjectValidationError);
+  });
+
+  it('does not apply the configured project in another workspace', async () => {
+    const other: Workspace = { id: 9, name: 'nine' };
+    const api = {
+      getWorkspaces: vi.fn().mockResolvedValue([workspace, other]),
+      getCachedProjects: vi.fn().mockReturnValue(undefined),
+      getProjects: vi.fn().mockResolvedValue([]),
+    } as unknown as TogglAPI;
+
+    await expect(
+      resolveEntryScope(api, { workspace_id: 9 }, { workspaceId: 7, projectId: 300 })
+    ).resolves.toEqual({ workspaceId: 9, projectId: undefined });
+    expect(api.getProjects).not.toHaveBeenCalled();
+  });
+
+  it('does not apply a project-only default to an explicitly chosen workspace', async () => {
+    const other: Workspace = { id: 9, name: 'nine' };
+    const api = {
+      getWorkspaces: vi.fn().mockResolvedValue([workspace, other]),
+      getCachedProjects: vi.fn().mockReturnValue(undefined),
+      getProjects: vi.fn().mockResolvedValue([]),
+    } as unknown as TogglAPI;
+
+    await expect(resolveEntryScope(api, { workspace_id: 9 }, { projectId: 300 })).resolves.toEqual({
+      workspaceId: 9,
+      projectId: undefined,
+    });
+    expect(api.getProjects).not.toHaveBeenCalled();
   });
 
   it('still resolves no project when none is configured', async () => {

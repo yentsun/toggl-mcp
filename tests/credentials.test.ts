@@ -62,7 +62,7 @@ describe('loadCredentials', () => {
   it('lets the environment token override the file token, keeping the file defaults', () => {
     const home = makeHome(JSON.stringify({ apiToken: 'file-token', workspaceId: 111 }));
 
-    expect(loadCredentials({ TOGGL_API_KEY: 'env-token' }, home)).toEqual({
+    expect(loadCredentials({ TOGGL_API_KEY: 'env-token' }, home)).toStrictEqual({
       apiToken: 'env-token',
       defaultWorkspaceId: 111,
       defaultProjectId: undefined,
@@ -72,7 +72,7 @@ describe('loadCredentials', () => {
   it('ignores a blank environment token', () => {
     const home = makeHome(JSON.stringify({ apiToken: 'file-token', workspaceId: 111 }));
 
-    expect(loadCredentials({ TOGGL_API_KEY: '   ' }, home)).toEqual({
+    expect(loadCredentials({ TOGGL_API_KEY: '   ' }, home)).toStrictEqual({
       apiToken: 'file-token',
       defaultWorkspaceId: 111,
       defaultProjectId: undefined,
@@ -82,7 +82,7 @@ describe('loadCredentials', () => {
   it('returns no defaults when none are configured', () => {
     const home = makeHome(JSON.stringify({ apiToken: 'file-token' }));
 
-    expect(loadCredentials({}, home)).toEqual({
+    expect(loadCredentials({}, home)).toStrictEqual({
       apiToken: 'file-token',
       defaultWorkspaceId: undefined,
       defaultProjectId: undefined,
@@ -94,7 +94,7 @@ describe('loadCredentials', () => {
       JSON.stringify({ apiToken: 'file-token', workspaceId: {}, projectId: true })
     );
 
-    expect(loadCredentials({}, home)).toEqual({
+    expect(loadCredentials({}, home)).toStrictEqual({
       apiToken: 'file-token',
       defaultWorkspaceId: undefined,
       defaultProjectId: undefined,

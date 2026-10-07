@@ -275,8 +275,7 @@ server.registerTool(
       const scope = await resolveEntryScope(
         api,
         { workspace_id, project_id },
-        DEFAULT_WORKSPACE_ID,
-        DEFAULT_PROJECT_ID
+        { workspaceId: DEFAULT_WORKSPACE_ID, projectId: DEFAULT_PROJECT_ID }
       );
       const entry = await api.createTimeEntry(scope.workspaceId, {
         description,
@@ -386,8 +385,7 @@ server.registerTool(
       const scope = await resolveEntryScope(
         api,
         { workspace_id, project_id },
-        DEFAULT_WORKSPACE_ID,
-        DEFAULT_PROJECT_ID
+        { workspaceId: DEFAULT_WORKSPACE_ID, projectId: DEFAULT_PROJECT_ID }
       );
       const entry = await api.startTimeEntry(scope.workspaceId, {
         description,
