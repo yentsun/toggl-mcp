@@ -72,7 +72,8 @@ want a default project.
 so an entry never lands in the wrong project. When `workspaceId` is set, the project applies while
 tracking in that workspace and a stale id fails with `INVALID_PROJECT_ID`; naming another
 `workspace_id` never inherits it. Without `workspaceId`, the project is applied when the resolved
-workspace owns it and ignored when it does not.
+workspace owns it and ignored when it does not; that check costs an extra request per write, and
+the result carries a `notice` when the project was skipped.
 
 `TOGGL_DEFAULT_WORKSPACE_ID` was removed in 0.5.0; put `workspaceId` in the credentials file
 instead.

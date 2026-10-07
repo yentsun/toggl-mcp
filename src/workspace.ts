@@ -146,9 +146,20 @@ export interface EntryScopeInput {
   project_id?: number;
 }
 
+/** Configured fallbacks, used when the matching input above is omitted. */
+export interface EntryScopeDefaults {
+  workspaceId?: number;
+  projectId?: number;
+}
+
 export interface EntryScope {
   workspaceId: number;
   projectId?: number;
+  /**
+   * True when the configured projectId did not fit the resolved workspace, so
+   * the entry is created without a project.
+   */
+  defaultProjectSkipped?: boolean;
 }
 
 /**
@@ -159,7 +170,7 @@ export interface EntryScope {
  */
 function configuredProjectIdFor(
   workspaceId: number,
-  defaults: Partial<EntryScope>
+  defaults: EntryScopeDefaults
 ): number | undefined {
   if (defaults.projectId === undefined) return undefined;
   if (defaults.workspaceId === undefined) return defaults.projectId;
@@ -174,7 +185,7 @@ function configuredProjectIdFor(
 export async function resolveEntryScope(
   api: TogglAPI,
   input: EntryScopeInput,
-  defaults: Partial<EntryScope> = {}
+  defaults: EntryScopeDefaults = {}
 ): Promise<EntryScope> {
   const workspaceId = await resolveWorkspaceId(api, input.workspace_id, defaults.workspaceId);
 
@@ -198,6 +209,6 @@ export async function resolveEntryScope(
     if (defaults.workspaceId !== undefined || !(error instanceof ProjectValidationError)) {
       throw error;
     }
-    return { workspaceId, projectId: undefined };
+    return { workspaceId, projectId: undefined, defaultProjectSkipped: true };
   }
 }

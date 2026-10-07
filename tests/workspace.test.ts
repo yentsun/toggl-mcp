@@ -145,6 +145,7 @@ describe('resolveProjectId', () => {
       code: 'INVALID_PROJECT_ID',
       projectId: 301,
       workspaceId: 7,
+      source: 'argument',
       availableProjects: [{ id: 300, name: 'alpha' }],
     });
     expect(api.getProjects).toHaveBeenCalledTimes(1);
@@ -268,7 +269,7 @@ describe('resolveEntryScope', () => {
 
     await expect(
       resolveEntryScope(api, { workspace_id: 9 }, { workspaceId: 7, projectId: 300 })
-    ).resolves.toEqual({ workspaceId: 9, projectId: undefined });
+    ).resolves.toStrictEqual({ workspaceId: 9, projectId: undefined });
     expect(api.getProjects).not.toHaveBeenCalled();
   });
 
@@ -281,7 +282,7 @@ describe('resolveEntryScope', () => {
     });
   });
 
-  it('ignores a project-only default that does not fit the resolved workspace', async () => {
+  it('flags a project-only default that does not fit the resolved workspace', async () => {
     const other: Workspace = { id: 9, name: 'nine' };
     const api = {
       getWorkspaces: vi.fn().mockResolvedValue([workspace, other]),
@@ -289,10 +290,9 @@ describe('resolveEntryScope', () => {
       getProjects: vi.fn().mockResolvedValue([]),
     } as unknown as TogglAPI;
 
-    await expect(resolveEntryScope(api, { workspace_id: 9 }, { projectId: 300 })).resolves.toEqual({
-      workspaceId: 9,
-      projectId: undefined,
-    });
+    await expect(
+      resolveEntryScope(api, { workspace_id: 9 }, { projectId: 300 })
+    ).resolves.toStrictEqual({ workspaceId: 9, projectId: undefined, defaultProjectSkipped: true });
     expect(api.getProjects).toHaveBeenCalledTimes(1);
   });
 
@@ -311,7 +311,7 @@ describe('resolveEntryScope', () => {
   it('still resolves no project when none is configured', async () => {
     const api = fakeApi([workspace], projects);
 
-    await expect(resolveEntryScope(api, {})).resolves.toEqual({
+    await expect(resolveEntryScope(api, {})).resolves.toStrictEqual({
       workspaceId: 7,
       projectId: undefined,
     });

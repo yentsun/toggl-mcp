@@ -16,6 +16,7 @@ import {
   resolveProjectId,
   resolveWorkspaceForEntry,
   resolveWorkspaceId,
+  type EntryScope,
 } from './workspace.js';
 import {
   PERIODS,
@@ -78,6 +79,20 @@ function ok(data: unknown): ToolResult {
       { type: 'text', text: typeof data === 'string' ? data : JSON.stringify(data, null, 2) },
     ],
   };
+}
+
+/**
+ * A configured default project that does not fit the workspace is skipped
+ * rather than fatal, so say so: the caller would otherwise only see an entry
+ * with no project. Logged to stderr too, which is the server's log channel.
+ */
+function skippedDefaultProject(scope: EntryScope): Record<string, unknown> {
+  if (scope.defaultProjectSkipped !== true) return {};
+  const notice =
+    'The configured projectId does not belong to this workspace, so the entry has no project. ' +
+    'Update or remove projectId in the credentials file, or pass project_id explicitly.';
+  console.warn(`yt-toggl-mcp: ${notice}`);
+  return { notice };
 }
 
 function fail(error: unknown): ToolResult {
@@ -289,7 +304,7 @@ server.registerTool(
         stop,
         duration,
       });
-      return ok({ created: true, entry });
+      return ok({ created: true, entry, ...skippedDefaultProject(scope) });
     } catch (error) {
       return fail(error);
     }
@@ -395,7 +410,7 @@ server.registerTool(
         tags,
         billable,
       });
-      return ok({ started: true, entry });
+      return ok({ started: true, entry, ...skippedDefaultProject(scope) });
     } catch (error) {
       return fail(error);
     }
