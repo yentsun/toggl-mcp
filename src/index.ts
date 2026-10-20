@@ -34,7 +34,7 @@ import {
   summarizeByProject,
 } from './utils.js';
 
-const VERSION = '0.7.1';
+const VERSION = '1.0.0';
 
 const argv = process.argv.slice(2);
 if (argv.includes('--version') || argv.includes('-v')) {
@@ -83,7 +83,31 @@ const parsedTtl = Number.parseInt(process.env.TOGGL_CACHE_TTL ?? '', 10);
 const CACHE_TTL_MS = Number.isFinite(parsedTtl) ? parsedTtl : 3_600_000;
 
 const api = new TogglAPI(API_KEY, CACHE_TTL_MS);
-const server = new McpServer({ name: 'yt-toggl-mcp', version: VERSION });
+
+/**
+ * Setup guidance travels with the server's instructions, which every MCP client
+ * shows the model at connect time. That is what makes the first run guided
+ * without the user editing any config: if the project is not configured yet,
+ * the agent's first action is the authorization and project-picking flow.
+ */
+const INSTRUCTIONS = DEFAULT_PROJECT_ID
+  ? 'Toggl Track time tracking. Entries default to the configured project and workspace.'
+  : [
+      'Toggl Track time tracking. This repository has no .yt-toggl-mcp.json yet, so no',
+      'project is associated with it and writes that need a project will fail.',
+      'On the first message, before anything else, run the toggl-setup skill:',
+      '1. call toggl_check_auth; if it fails, guide the user through creating',
+      '   ~/.yt-toggl-mcp/credentials.json or setting TOGGL_API_KEY, then retry;',
+      '2. call toggl_list_workspaces and toggl_list_projects;',
+      '3. ask which project this repository should be associated with;',
+      '4. write .yt-toggl-mcp.json in the repository root, add it to .gitignore, and',
+      '   confirm with toggl_get_current_entry. Do not start timers until it exists.',
+    ].join('\n');
+
+const server = new McpServer(
+  { name: 'yt-toggl-mcp', version: VERSION },
+  { instructions: INSTRUCTIONS }
+);
 
 type ToolResult = {
   content: { type: 'text'; text: string }[];

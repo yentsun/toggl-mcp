@@ -184,6 +184,43 @@ describe('loadProjectSettings', () => {
     expect(warnings[0]).toMatch(/toggl_list_projects/);
   });
 
+  it('finds the file in an ancestor repository when the launch directory differs', () => {
+    const repo = tempDir('yt-toggl-mcp-repo-');
+    mkdirSync(join(repo, '.git'), { recursive: true });
+    writeFileSync(
+      join(repo, PROJECT_SETTINGS_FILENAME),
+      JSON.stringify({ workspaceId: 111, projectId: 222 }),
+      'utf8'
+    );
+    const nested = join(repo, 'src', 'deep');
+    mkdirSync(nested, { recursive: true });
+
+    const warnings: string[] = [];
+    expect(loadProjectSettings(nested, (message) => warnings.push(message))).toEqual({
+      workspaceId: 111,
+      projectId: 222,
+    });
+    expect(warnings).toHaveLength(0);
+  });
+
+  it('does not walk past the repository root into a parent directory', () => {
+    const outside = tempDir('yt-toggl-mcp-outside-');
+    writeFileSync(
+      join(outside, PROJECT_SETTINGS_FILENAME),
+      JSON.stringify({ projectId: 999 }),
+      'utf8'
+    );
+    const repo = join(outside, 'repo');
+    mkdirSync(join(repo, '.git'), { recursive: true });
+
+    const warnings: string[] = [];
+    expect(loadProjectSettings(repo, (message) => warnings.push(message))).toEqual({
+      workspaceId: undefined,
+      projectId: undefined,
+    });
+    expect(warnings[0]).toContain(join(repo, PROJECT_SETTINGS_FILENAME));
+  });
+
   it('rejects an apiToken so a project file never holds a secret', () => {
     const project = makeProject(
       JSON.stringify({ apiToken: 'leaked-token', workspaceId: 1, projectId: 2 })

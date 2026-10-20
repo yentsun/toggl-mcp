@@ -5,27 +5,31 @@ description: Use when `yt-toggl-mcp` reports "Project settings file not found" o
 
 # Toggl Project Setup
 
-`yt-toggl-mcp` runs in project scope: it reads `.yt-toggl-mcp.json` from its working directory.
-Without it the server warns at startup and rejects writes that need a project default. This skill
-creates it once per repository.
+`yt-toggl-mcp` associates one Toggl project with each repository through
+`.yt-toggl-mcp.json` in the repository root. Until that file exists the server still answers, but
+writes that need a project default fail with `PROJECT_SETTINGS_MISSING`.
 
-The token is user-scoped and is **not** part of this setup: it comes from
-`~/.yt-toggl-mcp/credentials.json` or `TOGGL_API_KEY`.
+Run this flow once per repository. It is also what the server's own instructions ask the agent to do
+on first use, so follow it before any other Toggl work when the file is missing.
 
 ## Steps
 
-1. **Confirm the token works.** Call `toggl_check_auth`. If it fails with a token error, stop and
-   report the exact message — asking the user to create the credentials file is a separate task.
+1. **Authorize.** Call `toggl_check_auth`.
+
+   - Success: continue.
+   - Token error: guide the user through authorization — create
+     `~/.yt-toggl-mcp/credentials.json` containing `{"apiToken": "<token>"}` (from
+     [track.toggl.com/profile](https://track.toggl.com/profile)), or set `TOGGL_API_KEY`. Restart the
+     MCP server afterwards, since the token is read once at startup, then repeat this step.
 
 2. **Resolve the workspace.** Call `toggl_list_workspaces`, then:
 
    - one workspace: use it;
-   - several: ask which one this project tracks in;
+   - several: ask which one this repository tracks in;
    - none: report the failure and stop.
 
 3. **Pick the project.** Call `toggl_list_projects` with that `workspace_id`, show the candidates as
-   an id/name table, and ask which project this repository tracks. Offer "no default project" as an
-   option only if the user wants entries without one.
+   an id/name table, and ask which project this repository should be associated with.
 
 4. **Write the file.** Create `.yt-toggl-mcp.json` in the repository root:
 
@@ -36,8 +40,7 @@ The token is user-scoped and is **not** part of this setup: it comes from
    }
    ```
 
-   Omit `workspaceId` only when the account has a single workspace. Never add an `apiToken` key:
-   the server rejects it so a committed file cannot carry a secret.
+   Never add an `apiToken` key: the token is user-scoped and the server rejects one here.
 
 5. **Keep it out of version control.** Confirm `.yt-toggl-mcp.json` is ignored — check
    `.gitignore`, and add the line if it is absent. Do not commit the file.

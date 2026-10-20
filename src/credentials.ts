@@ -1,6 +1,6 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { parseId } from './workspace.js';
 
 export const CREDENTIALS_DIRNAME = '.yt-toggl-mcp';
@@ -109,6 +109,29 @@ function projectSettingsWarning(filePath: string): string {
 }
 
 /**
+ * The project settings file for a launch directory. Clients do not reliably set
+ * a working directory (npx and global bins often start in a temp or install
+ * directory), so walk up to the nearest ancestor that has the file, stopping at
+ * the git root that bounds the repository. Without this, a correct file in the
+ * repository is invisible to the server.
+ */
+function findProjectSettings(cwd: string): string | undefined {
+  let directory = resolve(cwd);
+
+  for (;;) {
+    const candidate = join(directory, PROJECT_SETTINGS_FILENAME);
+    if (existsSync(candidate)) return candidate;
+
+    // A repository root is the last directory that can own the file.
+    if (existsSync(join(directory, '.git'))) return undefined;
+
+    const parent = dirname(directory);
+    if (parent === directory) return undefined;
+    directory = parent;
+  }
+}
+
+/**
  * Read the project defaults from `.yt-toggl-mcp.json` in `cwd`.
  *
  * The token never lives here: a project file can be committed by mistake, so an
@@ -123,7 +146,12 @@ export function loadProjectSettings(
   cwd: string = process.cwd(),
   warn: (message: string) => void = console.warn
 ): ProjectSettings {
-  const filePath = projectSettingsPath(cwd);
+  const filePath = findProjectSettings(cwd);
+  if (filePath === undefined) {
+    warn(`yt-toggl-mcp: ${projectSettingsWarning(projectSettingsPath(cwd))}`);
+    return {};
+  }
+
   const settings = readJsonObject(filePath, 'project settings file', undefined);
   if (settings === undefined) {
     warn(`yt-toggl-mcp: ${projectSettingsWarning(filePath)}`);

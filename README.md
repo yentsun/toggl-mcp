@@ -107,26 +107,23 @@ the result carries a `notice` when the project was skipped.
 Keep `.yt-toggl-mcp.json` out of version control so no Toggl ids or personal tracking defaults
 appear in tracked repository files, and add it to each project's `.gitignore`.
 
-#### Launch from the project root
+#### Where the file is found
 
-The file is looked up relative to the server's **working directory**, not relative to the code that
-calls it. `npx` and globally installed bins can start in a temp or install directory, so an MCP
-client that does not set a working directory will report `Project settings file not found` even
-though the file exists in your repository. The config examples below set it explicitly:
+The server looks for `.yt-toggl-mcp.json` in its working directory, then in its parent directories up
+to the repository root (the nearest `.git`). A client that launches the server from anywhere inside
+the repository therefore finds the file, so no extra configuration is needed. A launch outside the
+repository finds nothing and the server warns.
 
-- opencode: `"cwd": "/absolute/path/to/project"`
-- generic stdio config: `"cwd"` in `mcpServers`, or launch the server yourself from the repository
-  root
-
-There is no flag or environment variable to point at another location: one project root, one
-`.yt-toggl-mcp.json`. The requirement applies to every tool, including `toggl_check_auth` and
-`toggl_report`: a directory with no settings file has no working server, and there is no
-token-only mode.
+No flag or environment variable selects another location: one repository, one
+`.yt-toggl-mcp.json`. A missing file does not break the server — reads keep working and writes that
+need a project default fail with `PROJECT_SETTINGS_MISSING` — so the first run can still authorize
+and pick a project. The server's instructions ask the agent to run the `toggl-setup` skill in that
+case.
 
 Precedence, highest first:
 
 1. explicit tool arguments (`workspace_id`, `project_id`)
-2. `.yt-toggl-mcp.json` in the working directory
+2. `.yt-toggl-mcp.json` from the launch directory up to the repository root
 
 A malformed settings file, or an id that is not a positive integer, stops the server with the path
 and key named. `workspaceId` and `projectId` in the user credentials file are ignored: they belong
@@ -156,8 +153,7 @@ directory, so every config must launch it from the repository root. Generic clie
   "mcpServers": {
     "yt-toggl-mcp": {
       "command": "npx",
-      "args": ["-y", "yt-toggl-mcp"],
-      "cwd": "/absolute/path/to/project"
+      "args": ["-y", "yt-toggl-mcp"]
     }
   }
 }
@@ -192,8 +188,7 @@ repository whose `.yt-toggl-mcp.json` the server should read:
   "mcp": {
     "yt-toggl-mcp": {
       "type": "local",
-      "command": ["npx", "-y", "yt-toggl-mcp"],
-      "cwd": "<repo>"
+      "command": ["npx", "-y", "yt-toggl-mcp"]
     }
   }
 }
@@ -202,24 +197,15 @@ repository whose `.yt-toggl-mcp.json` the server should read:
 No `environment` block is needed: the server reads its own credentials file, like `yt-gmail-mcp`
 and `yt-zoho-mcp`.
 
-**3. Add project settings to each repository**
+**3. Let the setup run**
 
-Each project needs its own `.yt-toggl-mcp.json` in its root, which is the `cwd` above:
+The server's instructions tell the agent to run the `toggl-setup` skill when this repository has no
+`.yt-toggl-mcp.json`. It checks the token, guides authorization if needed, lists the workspaces and
+projects, asks which project this repository should use, writes the file, and adds it to
+`.gitignore`.
 
-```json
-{
-  "workspaceId": 1234567,
-  "projectId": 7654321
-}
-```
-
-Add the file to that project's `.gitignore`. A project without it never inherits another project's
-defaults: the server warns at startup and refuses writes that need a project default. In opencode,
-the `toggl-setup` skill does this setup interactively: it picks the workspace and project from the
-live Toggl data and writes the file.
-
-Point `cwd` at the project you are working in, and keep one `yt-toggl-mcp` entry per project (or
-override the server definition in each project's `opencode.json`).
+The server finds the file by walking up from its launch directory to the repository root, so one
+global `yt-toggl-mcp` entry covers every repository.
 
 **4. Restart opencode**
 
