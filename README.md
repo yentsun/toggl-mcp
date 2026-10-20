@@ -27,9 +27,9 @@ stripped from every response and user emails are masked.
 | `toggl_report` | Total time for a range, grouped by project, sorted by hours. |
 
 `workspace_id` defaults to the configured workspace and `project_id` defaults to the configured
-project; explicit arguments always win. The default project is used only where it belongs:
-tracking in another workspace never inherits it, and with no `workspaceId` configured it is
-applied only if the resolved workspace owns that project.
+project from the project settings file; explicit arguments always win. The default project is used
+only where it belongs: tracking in another workspace never inherits it, and with no `workspaceId`
+configured it is applied only if the resolved workspace owns that project.
 
 `period` accepts `today`, `yesterday`, `week`, `lastWeek`, `month`, `lastMonth`. Ranges are
 interpreted in local time and `end_date` is inclusive at the tool boundary. `since` takes unix
@@ -45,28 +45,49 @@ retention boundary: if it reaches that boundary it returns `incomplete: true` to
 
 ## Configuration
 
-Credentials live in a per-tool file under your home directory, matching the other `yt-*` MCP
-servers. `TOGGL_API_KEY` may supply the token instead, so the file is optional in CI or containers.
+Toggl configuration has two scopes, and each setting lives in exactly one place.
 
-`~/.yt-toggl-mcp/credentials.json`:
+**User scope — the API token.** `TOGGL_API_KEY`, or a per-tool file under your home directory
+matching the other `yt-*` MCP servers:
+
+```
+~/.yt-toggl-mcp/credentials.json
+```
 
 ```json
 {
-  "apiToken": "<your token>",
+  "apiToken": "<your token>"
+}
+```
+
+**Project scope — the tracking defaults.** The server reads `.yt-toggl-mcp.json` from its working
+directory, which is the project root the MCP client launches it in. The name is fixed: there is no
+flag and no search up the tree, so a project either has its own Toggl defaults or has none.
+
+```json
+{
   "workspaceId": 1234567,
   "projectId": 216478744
 }
 ```
+
+| File | Scope | Keys |
+| --- | --- | --- |
+| `~/.yt-toggl-mcp/credentials.json` | user | `apiToken` |
+| `<project>/.yt-toggl-mcp.json` | project | `workspaceId`, `projectId` |
 
 | Variable | Required | Default | Purpose |
 | --- | --- | --- | --- |
 | `TOGGL_API_KEY` | no | `apiToken` from the credentials file | Toggl Track API token ([track.toggl.com/profile](https://track.toggl.com/profile)). |
 | `TOGGL_CACHE_TTL` | no | `3600000` | Metadata cache TTL in ms. |
 
-An API token must come from one of the two sources, otherwise the server exits with a message
-naming the file to create. `workspaceId` and `projectId` are file-only settings and both are
-optional: omit `workspaceId` if you only have one workspace, and omit `projectId` if you do not
-want a default project.
+A token must come from one of the two sources, otherwise the server exits with a message naming the
+file to create. The project settings file is mandatory: without it the server does not start, so no
+entry is ever created in a project you did not choose. An `apiToken` key in it is rejected, because
+a project file may be committed by mistake while the token stays user-scoped.
+
+Both keys in the project file are optional: omit `workspaceId` if you only have one workspace, and
+omit `projectId` if you do not want a default project.
 
 `projectId` is used only where it belongs, and is verified against the workspace before any write,
 so an entry never lands in the wrong project. When `workspaceId` is set, the project applies while
@@ -75,36 +96,20 @@ tracking in that workspace and a stale id fails with `INVALID_PROJECT_ID`; namin
 workspace owns it and ignored when it does not; that check costs an extra request per write, and
 the result carries a `notice` when the project was skipped.
 
-### Project-local defaults
-
-Pass `--settings <file>` on the MCP command to select a project-local JSON file that overrides
-`workspaceId` and `projectId` for that project only, without duplicating the API token:
-
-```json
-{
-  "workspaceId": 1234567,
-  "projectId": 7654321
-}
-```
-
-The token always comes from `TOGGL_API_KEY` or the credentials file; an `apiToken` key in the
-settings file is ignored. A relative path resolves against the server's working directory, and the
-file is read once at startup. Keep the file out of version control so no Toggl ids or personal
-tracking defaults appear in tracked repository files.
+Keep `.yt-toggl-mcp.json` out of version control so no Toggl ids or personal tracking defaults
+appear in tracked repository files, and add it to each project's `.gitignore`.
 
 Precedence, highest first:
 
 1. explicit tool arguments (`workspace_id`, `project_id`)
-2. the `--settings` file
-3. `~/.yt-toggl-mcp/credentials.json`
+2. `.yt-toggl-mcp.json` in the working directory
 
-Each key falls back on its own: a settings file with only `projectId` keeps the credentials file's
-`workspaceId`, and a `null` value counts as unset. Without `--settings` nothing changes. A missing
-or malformed settings file, or an id that is not a positive integer, stops the server with the path
-and key named.
+A malformed settings file, or an id that is not a positive integer, stops the server with the path
+and key named. `workspaceId` and `projectId` in the user credentials file are ignored: they belong
+in the project settings file.
 
-`TOGGL_DEFAULT_WORKSPACE_ID` was removed in 0.5.0; put `workspaceId` in the credentials file
-instead.
+`TOGGL_DEFAULT_WORKSPACE_ID` was removed in 0.5.0 and `--settings` was removed in 0.7.0; put
+`workspaceId` and `projectId` in the project settings file instead.
 
 ## Install
 
@@ -130,7 +135,8 @@ Any MCP client that speaks stdio works. Generic client config:
 }
 ```
 
-`yt-toggl-mcp --help` prints the credential path, the `--settings` precedence, and the environment
+`yt-toggl-mcp --help` prints the credential and project settings paths, the precedence, and the
+environment
 variables; `--version` prints the version. Both write to stderr, since stdout carries the MCP
 protocol.
 
@@ -142,14 +148,11 @@ Write `~/.yt-toggl-mcp/credentials.json` (Windows: `C:\Users\<you>\.yt-toggl-mcp
 
 ```json
 {
-  "apiToken": "<your token>",
-  "workspaceId": 1234567,
-  "projectId": 216478744
+  "apiToken": "<your token>"
 }
 ```
 
-`workspaceId` and `projectId` are optional. Alternatively set `TOGGL_API_KEY` in the environment
-to supply only the token — the file still holds the defaults.
+Alternatively set `TOGGL_API_KEY` in the environment to supply the token.
 
 **2. Register the server**
 
@@ -170,21 +173,25 @@ Add this to `~/.config/opencode/opencode.jsonc` (Windows:
 No `environment` block is needed: the server reads its own credentials file, like `yt-gmail-mcp`
 and `yt-zoho-mcp`.
 
-To give one project its own defaults without touching the user-wide file, add `--settings` pointing
-at an ignored project file:
+**3. Add project settings to each repository**
 
-```jsonc
-"command": ["npx", "-y", "yt-toggl-mcp", "--settings", ".yt-toggl.json"]
+Each project needs its own `.yt-toggl-mcp.json` in the root it launches the server from:
+
+```json
+{
+  "workspaceId": 1234567,
+  "projectId": 7654321
+}
 ```
 
-`.yt-toggl.json` then holds only `{"workspaceId": 1234567, "projectId": 7654321}`; the token still
-comes from the credentials file.
+Add the file to that project's `.gitignore`. The server exits at startup if the file is missing, so
+a project without it never inherits another project's defaults.
 
-**3. Restart opencode**
+**4. Restart opencode**
 
 Config is read once at startup and is not hot-reloaded, so the server only loads after a restart.
 
-**4. Verify**
+**5. Verify**
 
 Ask opencode to call `toggl_check_auth`. It should return your (masked) account and workspace list.
 A quick win after that: ask "what am I currently tracking?".
@@ -200,8 +207,9 @@ npm test
 
 `npm test` runs the Vitest suite with HTTP mocked, so no token or live calls are needed.
 
-`node dist/index.js` runs the built server locally — it reads the same credentials file described
-above. `npm run dev` watches the source with `tsx` instead of building.
+`node dist/index.js` runs the built server locally — it reads the same credentials and project
+settings files described above, so run it from the project root. `npm run dev` watches the source
+with `tsx` instead of building.
 
 ## License
 
