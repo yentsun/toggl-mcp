@@ -1,19 +1,26 @@
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { parseId } from './workspace.js';
 
 export const CREDENTIALS_DIRNAME = '.yt-toggl-mcp';
 export const CREDENTIALS_FILENAME = 'credentials.json';
 
+/**
+ * The project-scoped defaults file. The name is fixed on purpose: the server
+ * reads it from its working directory, which is the project root, so a project
+ * either has its own Toggl defaults or has none. There is no flag, no path
+ * argument, and no fallback to user-wide defaults.
+ */
+export const PROJECT_SETTINGS_FILENAME = '.yt-toggl-mcp.json';
+
+/** User-scoped credentials: the token only. */
 export interface Credentials {
   apiToken: string;
-  defaultWorkspaceId?: string | number;
-  defaultProjectId?: string | number;
 }
 
-/** Workspace/project defaults from a project-local settings file. */
-interface SettingsDefaults {
+/** Project-scoped defaults from the fixed settings file. */
+export interface ProjectSettings {
   workspaceId?: number;
   projectId?: number;
 }
@@ -29,26 +36,8 @@ export function credentialsPath(homeDir: string = homedir()): string {
   return join(homeDir, CREDENTIALS_DIRNAME, CREDENTIALS_FILENAME);
 }
 
-/**
- * Select the project-local settings file from the process arguments. Accepts
- * `--settings <file>` and `--settings=<file>`; a flag without a path is a
- * configuration error rather than a silently ignored argument.
- */
-export function settingsPathFromArgv(argv: string[]): string | undefined {
-  for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index]!;
-    if (arg === '--settings') {
-      const value = argv[index + 1]?.trim();
-      if (!value) throw new CredentialsError('--settings requires a file path.');
-      return value;
-    }
-    if (arg.startsWith('--settings=')) {
-      const value = arg.slice('--settings='.length).trim();
-      if (!value) throw new CredentialsError('--settings requires a file path.');
-      return value;
-    }
-  }
-  return undefined;
+export function projectSettingsPath(cwd: string = process.cwd()): string {
+  return resolve(cwd, PROJECT_SETTINGS_FILENAME);
 }
 
 function parseJsonObject(filePath: string, raw: string, label: string): Record<string, unknown> {
@@ -67,43 +56,37 @@ function parseJsonObject(filePath: string, raw: string, label: string): Record<s
 }
 
 /**
- * Read a JSON object. A missing credentials file is a normal state and yields
- * an empty object; a missing settings file was asked for explicitly, so it is
- * an error.
+ * Read a JSON object, or `missing` when the file does not exist. Every caller
+ * decides for itself whether absence is normal (the credentials file) or a
+ * startup error (the project settings file); other read failures always throw.
  */
-function readJsonObject(
+function readJsonObject<T>(
   filePath: string,
   label: string,
-  onMissing: 'ignore' | 'error'
-): Record<string, unknown> {
+  missing: T
+): Record<string, unknown> | T {
   let raw: string;
   try {
     raw = readFileSync(filePath, 'utf8');
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      if (onMissing === 'ignore') return {};
-      throw new CredentialsError(`Settings file not found: ${filePath}`);
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw new CredentialsError(`Could not read ${filePath}: ${(error as Error).message}`);
     }
-    throw new CredentialsError(`Could not read ${filePath}: ${(error as Error).message}`);
+    return missing;
   }
 
-  return parseJsonObject(filePath, raw, label);
+  return parseJsonObject(filePath, raw, label) as Record<string, unknown> | T;
 }
 
 function textValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
-function idValue(value: unknown): string | number | undefined {
-  if (typeof value === 'number') return Number.isFinite(value) ? value : undefined;
-  return textValue(value);
-}
-
 /**
  * A settings id is authoritative, so reject one that cannot be an id instead of
  * ignoring it: a typo would otherwise silently change which project is tracked.
  * parseId is the same check the server applies later, so anything accepted here
- * is used rather than dropped. Null counts as unset, like the credentials file.
+ * is used rather than dropped. Null counts as unset.
  */
 function settingsId(value: unknown, key: string, filePath: string): number | undefined {
   if (value === undefined || value === null) return undefined;
@@ -115,8 +98,33 @@ function settingsId(value: unknown, key: string, filePath: string): number | und
   return id;
 }
 
-function loadSettings(filePath: string): SettingsDefaults {
-  const settings = readJsonObject(filePath, 'settings file', 'error');
+function projectSettingsError(filePath: string): CredentialsError {
+  return new CredentialsError(
+    `Project settings file not found: ${filePath}\n` +
+      'yt-toggl-mcp runs in project scope: create that file in the project root with ' +
+      `{"workspaceId": <id>, "projectId": <id>} (use toggl_list_workspaces and ` +
+      'toggl_list_projects to pick ids) and keep it out of version control.'
+  );
+}
+
+/**
+ * Read the project defaults from `.yt-toggl-mcp.json` in `cwd`.
+ *
+ * The token never lives here: a project file can be committed by mistake, so an
+ * `apiToken` key is rejected rather than ignored.
+ */
+export function loadProjectSettings(cwd: string = process.cwd()): ProjectSettings {
+  const filePath = projectSettingsPath(cwd);
+  const settings = readJsonObject(filePath, 'project settings file', undefined);
+  if (settings === undefined) throw projectSettingsError(filePath);
+
+  if (settings.apiToken !== undefined) {
+    throw new CredentialsError(
+      `Invalid apiToken in ${filePath}: the Toggl token is user-scoped. ` +
+        `Set it in ${credentialsPath()} or TOGGL_API_KEY instead.`
+    );
+  }
+
   return {
     workspaceId: settingsId(settings.workspaceId, 'workspaceId', filePath),
     projectId: settingsId(settings.projectId, 'projectId', filePath),
@@ -124,25 +132,20 @@ function loadSettings(filePath: string): SettingsDefaults {
 }
 
 /**
- * Resolve credentials the same way the other yt-* MCP servers do: a per-tool
- * file under the user's home directory. The token may also come from
- * TOGGL_API_KEY so the server still works in CI or in a container without a
- * config file.
+ * Resolve the token the same way the other yt-* MCP servers do: a per-tool file
+ * under the user's home directory, or TOGGL_API_KEY so the server still works
+ * in CI or in a container without a config file.
  *
- * Workspace and project defaults come from the project-local settings file
- * selected with `--settings` when one is given, and otherwise from the user
- * credentials file; the settings file never supplies the token. Each key falls
- * back on its own, so a settings file with only `projectId` keeps the user
- * file's `workspaceId`. A `null` value counts as unset.
+ * Defaults are not read here. Workspace and project defaults are project-scoped
+ * and come from loadProjectSettings, so a repository without its own settings
+ * file can never inherit someone else's project.
  */
 export function loadCredentials(
   env: NodeJS.ProcessEnv = process.env,
-  homeDir: string = homedir(),
-  settingsPath?: string
+  homeDir: string = homedir()
 ): Credentials {
   const filePath = credentialsPath(homeDir);
-  const file = readJsonObject(filePath, 'credentials file', 'ignore');
-  const settings = settingsPath === undefined ? undefined : loadSettings(settingsPath);
+  const file = readJsonObject(filePath, 'credentials file', {} as Record<string, unknown>);
 
   const apiToken = textValue(env.TOGGL_API_KEY) ?? textValue(file.apiToken);
   if (!apiToken) {
@@ -152,9 +155,5 @@ export function loadCredentials(
     );
   }
 
-  return {
-    apiToken,
-    defaultWorkspaceId: settings?.workspaceId ?? idValue(file.workspaceId),
-    defaultProjectId: settings?.projectId ?? idValue(file.projectId),
-  };
+  return { apiToken };
 }

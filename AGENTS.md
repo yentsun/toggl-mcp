@@ -15,7 +15,7 @@ network egress is to `api.track.toggl.com`.
 src/
 ├── index.ts      # MCP server + tool registration (the only place tools are defined)
 ├── toggl-api.ts  # TogglAPI HTTP client; TogglAPIError; auth + retries-free error mapping
-├── credentials.ts # credentials file + project --settings loader; CredentialsError
+├── credentials.ts # user credentials + project .yt-toggl-mcp.json loader; CredentialsError
 ├── workspace.ts  # parseId / resolveWorkspaceId; WorkspaceResolutionError
 ├── format.ts     # maskEmail / publicWorkspaces (credential redaction)
 ├── report.ts     # collectReportEntries: backward overlap scan for toggl_report

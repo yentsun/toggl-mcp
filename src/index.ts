@@ -7,7 +7,9 @@ import {
   CredentialsError,
   credentialsPath,
   loadCredentials,
-  settingsPathFromArgv,
+  loadProjectSettings,
+  projectSettingsPath,
+  type ProjectSettings,
 } from './credentials.js';
 import { maskEmail, publicProjects, publicWorkspaces } from './format.js';
 import { collectReportEntries } from './report.js';
@@ -16,7 +18,6 @@ import {
   ProjectValidationError,
   WorkspaceResolutionError,
   WorkspaceValidationError,
-  parseId,
   resolveEntryScope,
   resolveProjectId,
   resolveWorkspaceForEntry,
@@ -33,7 +34,7 @@ import {
   summarizeByProject,
 } from './utils.js';
 
-const VERSION = '0.6.0';
+const VERSION = '0.7.0';
 
 const argv = process.argv.slice(2);
 if (argv.includes('--version') || argv.includes('-v')) {
@@ -43,13 +44,14 @@ if (argv.includes('--version') || argv.includes('-v')) {
 if (argv.includes('--help') || argv.includes('-h')) {
   console.error(
     `yt-toggl-mcp - Toggl Track MCP server\n\n` +
-      `Usage: node dist/index.js [--settings <file>] [--help] [--version]\n\n` +
-      `Credentials (TOGGL_API_KEY overrides the file token):\n` +
+      `Usage: node dist/index.js [--help] [--version]\n\n` +
+      `Credentials (user-scoped; TOGGL_API_KEY overrides the file token):\n` +
       `  ${credentialsPath()}\n` +
-      `    {"apiToken": "<toggl token>", "workspaceId": 1234567, "projectId": 216478744}\n\n` +
-      `Settings (--settings; overrides workspaceId/projectId, never the token):\n` +
+      `    {"apiToken": "<toggl token>"}\n\n` +
+      `Project settings (required; defaults for this project, never the token):\n` +
+      `  ${projectSettingsPath()}\n` +
       `    {"workspaceId": 1234567, "projectId": 216478744}\n\n` +
-      `Precedence: explicit tool arguments > --settings file > credentials file.\n\n` +
+      `Precedence: explicit tool arguments > project settings file.\n\n` +
       `Environment:\n` +
       `  TOGGL_API_KEY                Toggl Track API token\n` +
       `  TOGGL_CACHE_TTL              Metadata cache TTL in ms (default: 3600000)\n`
@@ -59,17 +61,24 @@ if (argv.includes('--help') || argv.includes('-h')) {
 
 config({ quiet: true });
 
-let credentials;
-try {
-  credentials = loadCredentials(process.env, undefined, settingsPathFromArgv(argv));
-} catch (error) {
-  console.error(error instanceof CredentialsError ? error.message : String(error));
-  process.exit(1);
+function loadConfig(): { apiToken: string; settings: ProjectSettings } {
+  try {
+    return {
+      apiToken: loadCredentials(process.env).apiToken,
+      settings: loadProjectSettings(),
+    };
+  } catch (error) {
+    console.error(error instanceof CredentialsError ? error.message : String(error));
+    // The throw is unreachable: exit terminates first. It exists so the function
+    // has no implicit `never` return path.
+    process.exit(1);
+    throw error;
+  }
 }
 
-const API_KEY = credentials.apiToken;
-const DEFAULT_WORKSPACE_ID = parseId(credentials.defaultWorkspaceId);
-const DEFAULT_PROJECT_ID = parseId(credentials.defaultProjectId);
+const { apiToken: API_KEY, settings } = loadConfig();
+const DEFAULT_WORKSPACE_ID = settings.workspaceId;
+const DEFAULT_PROJECT_ID = settings.projectId;
 const parsedTtl = Number.parseInt(process.env.TOGGL_CACHE_TTL ?? '', 10);
 const CACHE_TTL_MS = Number.isFinite(parsedTtl) ? parsedTtl : 3_600_000;
 
@@ -98,7 +107,7 @@ function skippedDefaultProject(scope: EntryScope): Record<string, unknown> {
   if (scope.defaultProjectSkipped !== true) return {};
   const notice =
     'The configured projectId does not belong to this workspace, so the entry has no project. ' +
-    'Update or remove projectId in the configuration file, or pass project_id explicitly.';
+    'Update or remove projectId in the project settings file, or pass project_id explicitly.';
   console.warn(`yt-toggl-mcp: ${notice}`);
   return { notice };
 }
