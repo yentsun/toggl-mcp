@@ -171,14 +171,17 @@ describe('loadProjectSettings', () => {
     expect(loadProjectSettings(project)).toEqual({ workspaceId: undefined, projectId: 999 });
   });
 
-  it('fails with the expected path when the file is missing', () => {
+  it('starts without defaults when the file is missing, warning with the expected path', () => {
     const project = makeProject();
+    const warnings: string[] = [];
 
-    expect(() => loadProjectSettings(project)).toThrow(CredentialsError);
-    expect(() => loadProjectSettings(project)).toThrow(
-      join(project, PROJECT_SETTINGS_FILENAME)
-    );
-    expect(() => loadProjectSettings(project)).toThrow(/toggl_list_projects/);
+    expect(loadProjectSettings(project, (message) => warnings.push(message))).toEqual({
+      workspaceId: undefined,
+      projectId: undefined,
+    });
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain(join(project, PROJECT_SETTINGS_FILENAME));
+    expect(warnings[0]).toMatch(/toggl_list_projects/);
   });
 
   it('rejects an apiToken so a project file never holds a secret', () => {

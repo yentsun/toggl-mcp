@@ -98,12 +98,13 @@ function settingsId(value: unknown, key: string, filePath: string): number | und
   return id;
 }
 
-function projectSettingsError(filePath: string): CredentialsError {
-  return new CredentialsError(
+function projectSettingsWarning(filePath: string): string {
+  return (
     `Project settings file not found: ${filePath}\n` +
-      'yt-toggl-mcp runs in project scope: create that file in the project root with ' +
-      `{"workspaceId": <id>, "projectId": <id>} (use toggl_list_workspaces and ` +
-      'toggl_list_projects to pick ids) and keep it out of version control.'
+    'yt-toggl-mcp runs in project scope: create that file in the project root with ' +
+    `{"workspaceId": <id>, "projectId": <id>} (use toggl_list_workspaces and ` +
+    'toggl_list_projects to pick ids) and keep it out of version control. ' +
+    'Writes that need a project default will fail until it exists.'
   );
 }
 
@@ -112,11 +113,22 @@ function projectSettingsError(filePath: string): CredentialsError {
  *
  * The token never lives here: a project file can be committed by mistake, so an
  * `apiToken` key is rejected rather than ignored.
+ *
+ * A missing file is not fatal. The server still starts, so read-only tools and
+ * explicit ids keep working, and every write that relies on a configured
+ * project fails with PROJECT_SETTINGS_MISSING. A malformed file, an invalid id,
+ * or a stray `apiToken` is a real mistake and still stops startup.
  */
-export function loadProjectSettings(cwd: string = process.cwd()): ProjectSettings {
+export function loadProjectSettings(
+  cwd: string = process.cwd(),
+  warn: (message: string) => void = console.warn
+): ProjectSettings {
   const filePath = projectSettingsPath(cwd);
   const settings = readJsonObject(filePath, 'project settings file', undefined);
-  if (settings === undefined) throw projectSettingsError(filePath);
+  if (settings === undefined) {
+    warn(`yt-toggl-mcp: ${projectSettingsWarning(filePath)}`);
+    return {};
+  }
 
   if (settings.apiToken !== undefined) {
     throw new CredentialsError(

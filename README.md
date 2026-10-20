@@ -85,11 +85,14 @@ the file to create. `workspaceId`/`projectId` in the user file are ignored.**
 | `TOGGL_CACHE_TTL` | no | `3600000` | Metadata cache TTL in ms. |
 
 A token must come from one of the two sources, otherwise the server exits with a message naming the
-file to create. The project settings file is mandatory: without it the server does not start, so no
-entry is ever created in a project you did not choose. The `toggl-setup` skill
-(`.opencode/skills/toggl-setup/SKILL.md`) walks a project through creating it. An `apiToken` key in
-it is rejected, because a project file may be committed by mistake while the token stays
-user-scoped.
+file to create. The `toggl-setup` skill (`.opencode/skills/toggl-setup/SKILL.md`) walks a project
+through creating the settings file. An `apiToken` key in it is rejected, because a project file may
+be committed by mistake while the token stays user-scoped.
+
+A missing settings file does not stop the server: it logs a warning to stderr, the read tools keep
+working, and any write that would rely on the configured project fails with
+`PROJECT_SETTINGS_MISSING` instead of creating an entry with no project. A malformed file or an
+invalid id still stops startup.
 
 Both keys in the project file are optional: omit `workspaceId` if you only have one workspace, and
 omit `projectId` if you do not want a default project.
@@ -143,7 +146,7 @@ Prerequisites: Node.js `>=20.19.0` and a Toggl Track API token from
 npx -y yt-toggl-mcp
 ```
 
-Run it from a repository that has a `.yt-toggl-mcp.json`; without one the server exits at startup.
+Run it from a repository that has a `.yt-toggl-mcp.json`; without one the server still starts but warns, and writes that need a project default fail.
 
 Any MCP client that speaks stdio works. The server reads its project settings from the working
 directory, so every config must launch it from the repository root. Generic client config:
@@ -210,10 +213,10 @@ Each project needs its own `.yt-toggl-mcp.json` in its root, which is the `cwd` 
 }
 ```
 
-Add the file to that project's `.gitignore`. The server exits at startup if the file is missing, so
-a project without it never inherits another project's defaults. In opencode, the `toggl-setup`
-skill does this setup interactively: it picks the workspace and project from the live Toggl data and
-writes the file.
+Add the file to that project's `.gitignore`. A project without it never inherits another project's
+defaults: the server warns at startup and refuses writes that need a project default. In opencode,
+the `toggl-setup` skill does this setup interactively: it picks the workspace and project from the
+live Toggl data and writes the file.
 
 Point `cwd` at the project you are working in, and keep one `yt-toggl-mcp` entry per project (or
 override the server definition in each project's `opencode.json`).

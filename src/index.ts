@@ -34,7 +34,7 @@ import {
   summarizeByProject,
 } from './utils.js';
 
-const VERSION = '0.7.0';
+const VERSION = '0.7.1';
 
 const argv = process.argv.slice(2);
 if (argv.includes('--version') || argv.includes('-v')) {
@@ -48,7 +48,7 @@ if (argv.includes('--help') || argv.includes('-h')) {
       `Credentials (user-scoped; TOGGL_API_KEY overrides the file token):\n` +
       `  ${credentialsPath()}\n` +
       `    {"apiToken": "<toggl token>"}\n\n` +
-      `Project settings (required; defaults for this project, never the token):\n` +
+      `Project settings (defaults for this project, never the token; missing only warns):\\n` +
       `  ${projectSettingsPath()}\n` +
       `    {"workspaceId": 1234567, "projectId": 216478744}\n\n` +
       `Precedence: explicit tool arguments > project settings file.\n\n` +
@@ -96,6 +96,28 @@ function ok(data: unknown): ToolResult {
       { type: 'text', text: typeof data === 'string' ? data : JSON.stringify(data, null, 2) },
     ],
   };
+}
+
+/** Raises when a write would run without the project default it was meant to use. */
+class ProjectSettingsMissingError extends Error {
+  readonly code = 'PROJECT_SETTINGS_MISSING';
+
+  constructor() {
+    super(
+      `No project was given and no project settings file is configured. Create ` +
+        `${projectSettingsPath()} in the project root, or pass project_id explicitly.`
+    );
+    this.name = 'ProjectSettingsMissingError';
+  }
+}
+
+/**
+ * Writes depend on the configured project: starting a timer without one silently
+ * tracks against no project, which is exactly the mistake the project-scoped
+ * settings file exists to prevent. Reads stay available without it.
+ */
+function assertProjectDefault(scope: EntryScope): void {
+  if (scope.projectId === undefined) throw new ProjectSettingsMissingError();
 }
 
 /**
@@ -311,6 +333,7 @@ server.registerTool(
         { workspace_id, project_id },
         { workspaceId: DEFAULT_WORKSPACE_ID, projectId: DEFAULT_PROJECT_ID }
       );
+      assertProjectDefault(scope);
       const entry = await api.createTimeEntry(scope.workspaceId, {
         description,
         project_id: scope.projectId,
@@ -421,6 +444,7 @@ server.registerTool(
         { workspace_id, project_id },
         { workspaceId: DEFAULT_WORKSPACE_ID, projectId: DEFAULT_PROJECT_ID }
       );
+      assertProjectDefault(scope);
       const entry = await api.startTimeEntry(scope.workspaceId, {
         description,
         project_id: scope.projectId,

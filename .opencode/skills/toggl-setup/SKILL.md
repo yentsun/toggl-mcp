@@ -1,12 +1,13 @@
 ---
 name: Toggl Project Setup
-description: Use when `yt-toggl-mcp` refuses to start with "Project settings file not found", when a repository needs its own Toggl workspace/project defaults, or when asked to configure Toggl for this project.
+description: Use when `yt-toggl-mcp` reports "Project settings file not found" or a write fails with `PROJECT_SETTINGS_MISSING`, when a repository needs its own Toggl workspace/project defaults, or when asked to configure Toggl for this project.
 ---
 
 # Toggl Project Setup
 
-`yt-toggl-mcp` runs in project scope: it reads `.yt-toggl-mcp.json` from its working directory and
-exits at startup when that file is missing. This skill creates it once per repository.
+`yt-toggl-mcp` runs in project scope: it reads `.yt-toggl-mcp.json` from its working directory.
+Without it the server warns at startup and rejects writes that need a project default. This skill
+creates it once per repository.
 
 The token is user-scoped and is **not** part of this setup: it comes from
 `~/.yt-toggl-mcp/credentials.json` or `TOGGL_API_KEY`.
