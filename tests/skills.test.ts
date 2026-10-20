@@ -11,9 +11,29 @@ const SKILLS_DIR = '.opencode/skills';
 const ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 function skillFiles(): string[] {
-  return readdirSync(SKILLS_DIR, { recursive: true, encoding: 'utf8' })
-    .filter((file) => file.split(sep).pop() === 'SKILL.md')
+  // OpenCode accepts `.opencode/skills/<id>/SKILL.md` at any depth and
+  // `.opencode/skills/<id>.md` at the source root, so collect both forms.
+  const files = readdirSync(SKILLS_DIR, { recursive: true, encoding: 'utf8' }).filter((file) =>
+    file.endsWith('.md')
+  );
+
+  return files
+    .filter((file) => {
+      const depth = file.split(sep).length;
+      return file.split(sep).pop() === 'SKILL.md' || depth === 1;
+    })
     .map((file) => join(SKILLS_DIR, file));
+}
+
+/**
+ * Directory-based skills are `.opencode/skills/<id>/SKILL.md`. OpenCode also
+ * accepts a flat `.opencode/skills/<id>.md`, so cover both when deriving the id.
+ */
+function skillId(file: string): string {
+  const [first, ...rest] = file.slice(SKILLS_DIR.length + 1).split(sep);
+
+  // A flat `<id>.md` has no second segment; a directory skill keeps its name.
+  return rest.length === 0 ? first!.replace(/\.md$/, '') : first!;
 }
 
 function frontmatter(file: string): Record<string, string> {
@@ -41,13 +61,12 @@ describe('project skills', () => {
 
   it('names every skill directory with a portable kebab-case id', () => {
     for (const file of skillFiles()) {
-      // `.opencode/skills/<id>/SKILL.md`: the directory name is the id, used
-      // verbatim and case-sensitively by OpenCode.
-      const parts = file.split(sep);
-      const skillId = parts.length === 4 ? parts[2]! : file;
+      // `.opencode/skills/<id>/SKILL.md` or `.opencode/skills/<id>.md`; the file
+      // name or directory name is the id, used verbatim and case-sensitively.
+      const id = skillId(file);
 
-      expect(skillId, file).toMatch(ID_PATTERN);
-      expect(skillId.length, file).toBeLessThanOrEqual(64);
+      expect(id, file).toMatch(ID_PATTERN);
+      expect(id.length, file).toBeLessThanOrEqual(64);
     }
   });
 });
