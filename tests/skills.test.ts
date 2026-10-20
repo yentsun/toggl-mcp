@@ -41,13 +41,13 @@ describe('project skills', () => {
 
   it('names every skill directory with a portable kebab-case id', () => {
     for (const file of skillFiles()) {
-      // `.opencode/skills/<id>/SKILL.md`; the id is the directory, lowercased by
-      // OpenCode into a case-sensitive id.
-      const [, source, id] = file.split(sep);
+      // `.opencode/skills/<id>/SKILL.md`: the directory name is the id, used
+      // verbatim and case-sensitively by OpenCode.
+      const parts = file.split(sep);
+      const skillId = parts.length === 4 ? parts[2]! : file;
 
-      expect(source, file).toBe('skills');
-      expect(id, file).toMatch(ID_PATTERN);
-      expect(id!.length, file).toBeLessThanOrEqual(64);
+      expect(skillId, file).toMatch(ID_PATTERN);
+      expect(skillId.length, file).toBeLessThanOrEqual(64);
     }
   });
 });
