@@ -71,10 +71,13 @@ flag and no search up the tree, so a project either has its own Toggl defaults o
 }
 ```
 
-| File | Scope | Keys |
-| --- | --- | --- |
-| `~/.yt-toggl-mcp/credentials.json` | user | `apiToken` |
-| `<project>/.yt-toggl-mcp.json` | project | `workspaceId`, `projectId` |
+**`apiToken` must come from one of the two sources, otherwise the server exits with a message naming
+the file to create. `workspaceId`/`projectId` in the user file are ignored.**
+
+| File | Scope | Where | Keys |
+| --- | --- | --- | --- |
+| `~/.yt-toggl-mcp/credentials.json` | user | home directory | `apiToken` |
+| `.yt-toggl-mcp.json` | project | repository root | `workspaceId`, `projectId` |
 
 | Variable | Required | Default | Purpose |
 | --- | --- | --- | --- |
@@ -101,6 +104,20 @@ the result carries a `notice` when the project was skipped.
 Keep `.yt-toggl-mcp.json` out of version control so no Toggl ids or personal tracking defaults
 appear in tracked repository files, and add it to each project's `.gitignore`.
 
+#### Launch from the project root
+
+The file is looked up relative to the server's **working directory**, not relative to the code that
+calls it. `npx` and globally installed bins can start in a temp or install directory, so an MCP
+client that does not set a working directory will report `Project settings file not found` even
+though the file exists in your repository. Every client config below sets it explicitly:
+
+- opencode: `"cwd": "/absolute/path/to/project"`
+- generic stdio config: `"cwd"` in `mcpServers`, or launch the server yourself from the repository
+  root
+
+There is no flag or environment variable to point at another location: one project root, one
+`.yt-toggl-mcp.json`.
+
 Precedence, highest first:
 
 1. explicit tool arguments (`workspace_id`, `project_id`)
@@ -124,23 +141,24 @@ Prerequisites: Node.js `>=20.19.0` and a Toggl Track API token from
 npx -y yt-toggl-mcp
 ```
 
-Any MCP client that speaks stdio works. Generic client config:
+Any MCP client that speaks stdio works. The server reads its project settings from the working
+directory, so every config must launch it from the repository root. Generic client config:
 
 ```json
 {
   "mcpServers": {
     "yt-toggl-mcp": {
       "command": "npx",
-      "args": ["-y", "yt-toggl-mcp"]
+      "args": ["-y", "yt-toggl-mcp"],
+      "cwd": "/absolute/path/to/project"
     }
   }
 }
 ```
 
 `yt-toggl-mcp --help` prints the credential and project settings paths, the precedence, and the
-environment
-variables; `--version` prints the version. Both write to stderr, since stdout carries the MCP
-protocol.
+environment variables; `--version` prints the version. Both write to stderr, since stdout carries
+the MCP protocol.
 
 ### opencode
 
@@ -159,14 +177,16 @@ Alternatively set `TOGGL_API_KEY` in the environment to supply the token.
 **2. Register the server**
 
 Add this to `~/.config/opencode/opencode.jsonc` (Windows:
-`C:\Users\<you>\.config\opencode\opencode.jsonc`) under the existing `mcp` key:
+`C:\Users\<you>\.config\opencode\opencode.jsonc`) under the existing `mcp` key. `<repo>` is the
+repository whose `.yt-toggl-mcp.json` the server should read:
 
 ```jsonc
 {
   "mcp": {
     "yt-toggl-mcp": {
       "type": "local",
-      "command": ["npx", "-y", "yt-toggl-mcp"]
+      "command": ["npx", "-y", "yt-toggl-mcp"],
+      "cwd": "<repo>"
     }
   }
 }
@@ -177,7 +197,7 @@ and `yt-zoho-mcp`.
 
 **3. Add project settings to each repository**
 
-Each project needs its own `.yt-toggl-mcp.json` in the root it launches the server from:
+Each project needs its own `.yt-toggl-mcp.json` in its root, which is the `cwd` above:
 
 ```json
 {
@@ -190,6 +210,9 @@ Add the file to that project's `.gitignore`. The server exits at startup if the 
 a project without it never inherits another project's defaults. In opencode, the `toggl-setup`
 skill does this setup interactively: it picks the workspace and project from the live Toggl data and
 writes the file.
+
+Point `cwd` at the project you are working in, and keep one `yt-toggl-mcp` entry per project (or
+override the server definition in each project's `opencode.json`).
 
 **4. Restart opencode**
 

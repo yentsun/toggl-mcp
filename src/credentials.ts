@@ -57,8 +57,8 @@ function parseJsonObject(filePath: string, raw: string, label: string): Record<s
 
 /**
  * Read a JSON object. A missing credentials file is a normal state and yields
- * an empty object; the project settings file is mandatory, so its absence is
- * reported by the caller as a configuration failure.
+ * an empty object; a missing project settings file yields undefined, which
+ * loadProjectSettings turns into the startup error.
  */
 function readJsonObject(
   filePath: string,
@@ -69,11 +69,10 @@ function readJsonObject(
   try {
     raw = readFileSync(filePath, 'utf8');
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      if (onMissing === 'ignore') return {};
-      return undefined;
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw new CredentialsError(`Could not read ${filePath}: ${(error as Error).message}`);
     }
-    throw new CredentialsError(`Could not read ${filePath}: ${(error as Error).message}`);
+    return onMissing === 'ignore' ? {} : undefined;
   }
 
   return parseJsonObject(filePath, raw, label);

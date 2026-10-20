@@ -9,6 +9,7 @@ import {
   loadCredentials,
   loadProjectSettings,
   projectSettingsPath,
+  type ProjectSettings,
 } from './credentials.js';
 import { maskEmail, publicProjects, publicWorkspaces } from './format.js';
 import { collectReportEntries } from './report.js';
@@ -60,17 +61,19 @@ if (argv.includes('--help') || argv.includes('-h')) {
 
 config({ quiet: true });
 
-let credentials;
-let settings;
-try {
-  credentials = loadCredentials(process.env);
-  settings = loadProjectSettings();
-} catch (error) {
-  console.error(error instanceof CredentialsError ? error.message : String(error));
-  process.exit(1);
+function loadConfig(): { apiToken: string; settings: ProjectSettings } {
+  try {
+    return {
+      apiToken: loadCredentials(process.env).apiToken,
+      settings: loadProjectSettings(),
+    };
+  } catch (error) {
+    console.error(error instanceof CredentialsError ? error.message : String(error));
+    process.exit(1);
+  }
 }
 
-const API_KEY = credentials.apiToken;
+const { apiToken: API_KEY, settings } = loadConfig();
 const DEFAULT_WORKSPACE_ID = settings.workspaceId;
 const DEFAULT_PROJECT_ID = settings.projectId;
 const parsedTtl = Number.parseInt(process.env.TOGGL_CACHE_TTL ?? '', 10);
