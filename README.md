@@ -234,6 +234,10 @@ npm test
 
 `npm test` runs the Vitest suite with HTTP mocked, so no token or live calls are needed.
 
+The server runs from `src` in development (`npm run dev`, `npm test`). `dist` is only for the
+published `bin`: `npm install` compiles it through the `prepare` script, and `npm run build` does
+the same on demand.
+
 `node dist/index.js` runs the built server locally — it reads the same credentials and project
 settings files described above, so run it from the project root. `npm run dev` watches the source
 with `tsx` instead of building.
