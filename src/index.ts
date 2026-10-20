@@ -70,6 +70,8 @@ function loadConfig(): { apiToken: string; settings: ProjectSettings } {
   } catch (error) {
     console.error(error instanceof CredentialsError ? error.message : String(error));
     process.exit(1);
+    // process.exit never returns, but the throw keeps the signature honest.
+    throw error;
   }
 }
 

@@ -109,14 +109,16 @@ appear in tracked repository files, and add it to each project's `.gitignore`.
 The file is looked up relative to the server's **working directory**, not relative to the code that
 calls it. `npx` and globally installed bins can start in a temp or install directory, so an MCP
 client that does not set a working directory will report `Project settings file not found` even
-though the file exists in your repository. Every client config below sets it explicitly:
+though the file exists in your repository. The config examples below set it explicitly:
 
 - opencode: `"cwd": "/absolute/path/to/project"`
 - generic stdio config: `"cwd"` in `mcpServers`, or launch the server yourself from the repository
   root
 
 There is no flag or environment variable to point at another location: one project root, one
-`.yt-toggl-mcp.json`.
+`.yt-toggl-mcp.json`. The requirement applies to every tool, including `toggl_check_auth` and
+`toggl_report`: a directory with no settings file has no working server, and there is no
+token-only mode.
 
 Precedence, highest first:
 
@@ -140,6 +142,8 @@ Prerequisites: Node.js `>=20.19.0` and a Toggl Track API token from
 ```bash
 npx -y yt-toggl-mcp
 ```
+
+Run it from a repository that has a `.yt-toggl-mcp.json`; without one the server exits at startup.
 
 Any MCP client that speaks stdio works. The server reads its project settings from the working
 directory, so every config must launch it from the repository root. Generic client config:

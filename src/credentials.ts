@@ -63,7 +63,7 @@ function parseJsonObject(filePath: string, raw: string, label: string): Record<s
 function readJsonObject(
   filePath: string,
   label: string,
-  onMissing: 'ignore' | 'throw'
+  onMissing: 'empty' | 'undefined'
 ): Record<string, unknown> | undefined {
   let raw: string;
   try {
@@ -72,7 +72,7 @@ function readJsonObject(
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
       throw new CredentialsError(`Could not read ${filePath}: ${(error as Error).message}`);
     }
-    return onMissing === 'ignore' ? {} : undefined;
+    return onMissing === 'empty' ? {} : undefined;
   }
 
   return parseJsonObject(filePath, raw, label);
@@ -115,7 +115,7 @@ function projectSettingsError(filePath: string): CredentialsError {
  */
 export function loadProjectSettings(cwd: string = process.cwd()): ProjectSettings {
   const filePath = projectSettingsPath(cwd);
-  const settings = readJsonObject(filePath, 'project settings file', 'throw');
+  const settings = readJsonObject(filePath, 'project settings file', 'undefined');
   if (settings === undefined) throw projectSettingsError(filePath);
 
   if (settings.apiToken !== undefined) {
@@ -145,7 +145,7 @@ export function loadCredentials(
   homeDir: string = homedir()
 ): Credentials {
   const filePath = credentialsPath(homeDir);
-  const file = readJsonObject(filePath, 'credentials file', 'ignore') ?? {};
+  const file = readJsonObject(filePath, 'credentials file', 'empty') ?? {};
 
   const apiToken = textValue(env.TOGGL_API_KEY) ?? textValue(file.apiToken);
   if (!apiToken) {
