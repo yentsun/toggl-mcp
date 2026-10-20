@@ -83,8 +83,10 @@ flag and no search up the tree, so a project either has its own Toggl defaults o
 
 A token must come from one of the two sources, otherwise the server exits with a message naming the
 file to create. The project settings file is mandatory: without it the server does not start, so no
-entry is ever created in a project you did not choose. An `apiToken` key in it is rejected, because
-a project file may be committed by mistake while the token stays user-scoped.
+entry is ever created in a project you did not choose. The `toggl-setup` skill
+(`.opencode/skills/toggl-setup/SKILL.md`) walks a project through creating it. An `apiToken` key in
+it is rejected, because a project file may be committed by mistake while the token stays
+user-scoped.
 
 Both keys in the project file are optional: omit `workspaceId` if you only have one workspace, and
 omit `projectId` if you do not want a default project.
@@ -185,7 +187,9 @@ Each project needs its own `.yt-toggl-mcp.json` in the root it launches the serv
 ```
 
 Add the file to that project's `.gitignore`. The server exits at startup if the file is missing, so
-a project without it never inherits another project's defaults.
+a project without it never inherits another project's defaults. In opencode, the `toggl-setup`
+skill does this setup interactively: it picks the workspace and project from the live Toggl data and
+writes the file.
 
 **4. Restart opencode**
 
