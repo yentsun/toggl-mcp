@@ -69,8 +69,9 @@ function loadConfig(): { apiToken: string; settings: ProjectSettings } {
     };
   } catch (error) {
     console.error(error instanceof CredentialsError ? error.message : String(error));
+    // The throw is unreachable: exit terminates first. It exists so the function
+    // has no implicit `never` return path.
     process.exit(1);
-    // process.exit never returns, but the throw keeps the signature honest.
     throw error;
   }
 }

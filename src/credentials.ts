@@ -56,15 +56,15 @@ function parseJsonObject(filePath: string, raw: string, label: string): Record<s
 }
 
 /**
- * Read a JSON object. A missing credentials file is a normal state and yields
- * an empty object; a missing project settings file yields undefined, which
- * loadProjectSettings turns into the startup error.
+ * Read a JSON object, or `missing` when the file does not exist. Every caller
+ * decides for itself whether absence is normal (the credentials file) or a
+ * startup error (the project settings file); other read failures always throw.
  */
-function readJsonObject(
+function readJsonObject<T>(
   filePath: string,
   label: string,
-  onMissing: 'empty' | 'undefined'
-): Record<string, unknown> | undefined {
+  missing: T
+): Record<string, unknown> | T {
   let raw: string;
   try {
     raw = readFileSync(filePath, 'utf8');
@@ -72,10 +72,10 @@ function readJsonObject(
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
       throw new CredentialsError(`Could not read ${filePath}: ${(error as Error).message}`);
     }
-    return onMissing === 'empty' ? {} : undefined;
+    return missing;
   }
 
-  return parseJsonObject(filePath, raw, label);
+  return parseJsonObject(filePath, raw, label) as Record<string, unknown> | T;
 }
 
 function textValue(value: unknown): string | undefined {
@@ -115,7 +115,7 @@ function projectSettingsError(filePath: string): CredentialsError {
  */
 export function loadProjectSettings(cwd: string = process.cwd()): ProjectSettings {
   const filePath = projectSettingsPath(cwd);
-  const settings = readJsonObject(filePath, 'project settings file', 'undefined');
+  const settings = readJsonObject(filePath, 'project settings file', undefined);
   if (settings === undefined) throw projectSettingsError(filePath);
 
   if (settings.apiToken !== undefined) {
@@ -145,7 +145,7 @@ export function loadCredentials(
   homeDir: string = homedir()
 ): Credentials {
   const filePath = credentialsPath(homeDir);
-  const file = readJsonObject(filePath, 'credentials file', 'empty') ?? {};
+  const file = readJsonObject(filePath, 'credentials file', {} as Record<string, unknown>);
 
   const apiToken = textValue(env.TOGGL_API_KEY) ?? textValue(file.apiToken);
   if (!apiToken) {
