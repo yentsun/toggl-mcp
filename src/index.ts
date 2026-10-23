@@ -50,7 +50,7 @@ if (argv.includes('--help') || argv.includes('-h')) {
       `    {"apiToken": "<toggl token>"}\n\n` +
       `Project settings (defaults for this project, never the token; missing only warns):\\n` +
       `  ${projectSettingsPath()}\n` +
-      `    {"workspaceId": 1234567, "projectId": 216478744}\n\n` +
+      `    {"workspaceId": 1234567, "projectId": 216478744, "billable": true}\n\n` +
       `Precedence: explicit tool arguments > project settings file.\n\n` +
       `Environment:\n` +
       `  TOGGL_API_KEY                Toggl Track API token\n` +
@@ -79,10 +79,18 @@ function loadConfig(): { apiToken: string; settings: ProjectSettings } {
 const { apiToken: API_KEY, settings } = loadConfig();
 const DEFAULT_WORKSPACE_ID = settings.workspaceId;
 const DEFAULT_PROJECT_ID = settings.projectId;
+const DEFAULT_BILLABLE = settings.billable;
 const parsedTtl = Number.parseInt(process.env.TOGGL_CACHE_TTL ?? '', 10);
 const CACHE_TTL_MS = Number.isFinite(parsedTtl) ? parsedTtl : 3_600_000;
 
 const api = new TogglAPI(API_KEY, CACHE_TTL_MS);
+
+/** Defaults from the project settings file, in the shape resolveEntryScope expects. */
+const ENTRY_SCOPE_DEFAULTS = {
+  workspaceId: DEFAULT_WORKSPACE_ID,
+  projectId: DEFAULT_PROJECT_ID,
+  billable: DEFAULT_BILLABLE,
+};
 
 /**
  * Setup guidance travels with the server's instructions, which every MCP client
@@ -156,6 +164,16 @@ function skippedDefaultProject(scope: EntryScope): Record<string, unknown> {
     'Update or remove projectId in the project settings file, or pass project_id explicitly.';
   console.warn(`yt-toggl-mcp: ${notice}`);
   return { notice };
+}
+
+/**
+ * An explicit billable argument always wins. The configured default applies
+ * only when the entry lands in the configured project, because elsewhere it
+ * would decide billing for work this repository does not own.
+ */
+function billableFor(scope: EntryScope, explicit?: boolean): boolean | undefined {
+  if (explicit !== undefined) return explicit;
+  return scope.billable;
 }
 
 function fail(error: unknown): ToolResult {
@@ -337,7 +355,7 @@ server.registerTool(
   {
     title: 'Create a time entry',
     description:
-      'Create a completed or running time entry. Provide stop (or duration) for a completed entry; omit both to start a running timer. project_id defaults to the configured project.',
+      'Create a completed or running time entry. Provide stop (or duration) for a completed entry; omit both to start a running timer. project_id defaults to the configured project, and billable defaults to the configured project billable flag.',
     inputSchema: {
       description: z.string().optional(),
       project_id: z.number().int().positive().optional(),
@@ -355,7 +373,7 @@ server.registerTool(
       const scope = await resolveEntryScope(
         api,
         { workspace_id, project_id },
-        { workspaceId: DEFAULT_WORKSPACE_ID, projectId: DEFAULT_PROJECT_ID }
+        ENTRY_SCOPE_DEFAULTS
       );
       assertProjectDefault(scope);
       const entry = await api.createTimeEntry(scope.workspaceId, {
@@ -363,7 +381,9 @@ server.registerTool(
         project_id: scope.projectId,
         task_id,
         tags,
-        billable,
+        // An explicit project_id means the caller chose the project, so the
+        // configured billable default does not apply there.
+        billable: project_id === undefined ? billableFor(scope, billable) : billable,
         start,
         stop,
         duration,
@@ -452,7 +472,7 @@ server.registerTool(
   {
     title: 'Start timer',
     description:
-      'Start a new running time entry with an optional description, project, and tags. project_id defaults to the configured project. Use this to switch tasks; do not stop the running entry first unless the caller explicitly asked to stop tracking.',
+      'Start a new running time entry with an optional description, project, and tags. project_id defaults to the configured project, and billable defaults to the configured project billable flag. Use this to switch tasks; do not stop the running entry first unless the caller explicitly asked to stop tracking.',
     inputSchema: {
       description: z.string().optional(),
       project_id: z.number().int().positive().optional(),
@@ -466,14 +486,16 @@ server.registerTool(
       const scope = await resolveEntryScope(
         api,
         { workspace_id, project_id },
-        { workspaceId: DEFAULT_WORKSPACE_ID, projectId: DEFAULT_PROJECT_ID }
+        ENTRY_SCOPE_DEFAULTS
       );
       assertProjectDefault(scope);
       const entry = await api.startTimeEntry(scope.workspaceId, {
         description,
         project_id: scope.projectId,
         tags,
-        billable,
+        // See toggl_create_time_entry: the default applies only to the
+        // configured project, not to one the caller passed in.
+        billable: project_id === undefined ? billableFor(scope, billable) : billable,
       });
       return ok({ started: true, entry, ...skippedDefaultProject(scope) });
     } catch (error) {

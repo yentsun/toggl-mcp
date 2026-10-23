@@ -67,7 +67,8 @@ flag and no search up the tree, so a project either has its own Toggl defaults o
 ```json
 {
   "workspaceId": 1234567,
-  "projectId": 216478744
+  "projectId": 216478744,
+  "billable": true
 }
 ```
 
@@ -77,7 +78,7 @@ the file to create. `workspaceId`/`projectId` in the user file are ignored.**
 | File | Scope | Where | Keys |
 | --- | --- | --- | --- |
 | `~/.yt-toggl-mcp/credentials.json` | user | home directory | `apiToken` |
-| `.yt-toggl-mcp.json` | project | repository root | `workspaceId`, `projectId` |
+| `.yt-toggl-mcp.json` | project | repository root | `workspaceId`, `projectId`, `billable` |
 
 | Variable | Required | Default | Purpose |
 | --- | --- | --- | --- |
@@ -96,6 +97,12 @@ invalid id still stops startup.
 
 Both keys in the project file are optional: omit `workspaceId` if you only have one workspace, and
 omit `projectId` if you do not want a default project.
+
+`billable` is optional too, and it is what makes tracked time show as billable by default. A Toggl
+project's own billable setting does not propagate to the entries created in it, so without this key
+every new timer starts unbilled. It applies to `toggl_start_timer` and `toggl_create_time_entry`
+when the caller passes no `billable`, and only where the configured project applies; an explicit
+`billable` argument always wins. A value that is not `true`/`false` stops startup with the key named.
 
 `projectId` is used only where it belongs, and is verified against the workspace before any write,
 so an entry never lands in the wrong project. When `workspaceId` is set, the project applies while

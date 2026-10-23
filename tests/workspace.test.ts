@@ -228,7 +228,37 @@ describe('resolveEntryScope', () => {
     await expect(resolveEntryScope(api, {}, { workspaceId: 7, projectId: 300 })).resolves.toEqual({
       workspaceId: 7,
       projectId: 300,
+      billable: undefined,
     });
+  });
+
+  it('carries the configured billable flag with the configured project', async () => {
+    const api = fakeApi([workspace], projects);
+
+    await expect(
+      resolveEntryScope(api, {}, { workspaceId: 7, projectId: 300, billable: true })
+    ).resolves.toEqual({ workspaceId: 7, projectId: 300, billable: true });
+  });
+
+  it('never applies the configured billable flag to a project the caller passed', async () => {
+    const api = fakeApi([workspace], projects);
+
+    await expect(
+      resolveEntryScope(api, { project_id: 300 }, { workspaceId: 7, projectId: 999, billable: true })
+    ).resolves.toEqual({ workspaceId: 7, projectId: 300 });
+  });
+
+  it('never applies the configured billable flag in another workspace', async () => {
+    const other: Workspace = { id: 9, name: 'nine' };
+    const api = {
+      getWorkspaces: vi.fn().mockResolvedValue([workspace, other]),
+      getCachedProjects: vi.fn().mockReturnValue(undefined),
+      getProjects: vi.fn().mockResolvedValue([]),
+    } as unknown as TogglAPI;
+
+    await expect(
+      resolveEntryScope(api, { workspace_id: 9 }, { workspaceId: 7, projectId: 300, billable: true })
+    ).resolves.toStrictEqual({ workspaceId: 9, projectId: undefined });
   });
 
   it('uses the configured project when the caller repeats the configured workspace', async () => {
