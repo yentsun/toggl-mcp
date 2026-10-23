@@ -150,11 +150,15 @@ export interface EntryScopeInput {
 export interface EntryScopeDefaults {
   workspaceId?: number;
   projectId?: number;
+  /** Billable flag for entries the configured project creates. */
+  billable?: boolean;
 }
 
 export interface EntryScope {
   workspaceId: number;
   projectId?: number;
+  /** Configured billable default, applied only where the configured project applies. */
+  billable?: boolean;
   /**
    * True when the configured projectId did not fit the resolved workspace, so
    * the entry is created without a project.
@@ -180,7 +184,8 @@ function configuredProjectIdFor(
 /**
  * Resolve and verify the workspace/project pair before creating a time entry.
  * project_id always wins; otherwise the configured project applies only where
- * it belongs, so an entry in another workspace never inherits it.
+ * it belongs, so an entry in another workspace never inherits it. The
+ * configured billable flag follows the project for the same reason.
  */
 export async function resolveEntryScope(
   api: TogglAPI,
@@ -200,6 +205,7 @@ export async function resolveEntryScope(
     return {
       workspaceId,
       projectId: await resolveProjectId(api, workspaceId, configuredProjectId, 'configuration'),
+      billable: defaults.billable,
     };
   } catch (error) {
     // Without a configured workspace the project is only a hint, so one that

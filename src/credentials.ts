@@ -23,6 +23,12 @@ export interface Credentials {
 export interface ProjectSettings {
   workspaceId?: number;
   projectId?: number;
+  /**
+   * Billable flag for entries this project creates when the caller does not
+   * pass one. A Toggl project's own billable setting does not propagate to
+   * entries, so the default lives here instead.
+   */
+  billable?: boolean;
 }
 
 export class CredentialsError extends Error {
@@ -98,11 +104,24 @@ function settingsId(value: unknown, key: string, filePath: string): number | und
   return id;
 }
 
+/**
+ * An optional boolean flag. Like an id, a value of the wrong type is a typo
+ * that would silently change how entries are tracked, so it is rejected rather
+ * than ignored. Null counts as unset.
+ */
+function settingsFlag(value: unknown, key: string, filePath: string): boolean | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'boolean') {
+    throw new CredentialsError(`Invalid ${key} in ${filePath}: expected true or false.`);
+  }
+  return value;
+}
+
 function projectSettingsWarning(filePath: string): string {
   return (
     `Project settings file not found: ${filePath}\n` +
     'yt-toggl-mcp runs in project scope: create that file in the project root with ' +
-    `{"workspaceId": <id>, "projectId": <id>} (use toggl_list_workspaces and ` +
+    `{"workspaceId": <id>, "projectId": <id>, "billable": true} (use toggl_list_workspaces and ` +
     'toggl_list_projects to pick ids) and keep it out of version control. ' +
     'Writes that need a project default will fail until it exists.'
   );
@@ -168,6 +187,7 @@ export function loadProjectSettings(
   return {
     workspaceId: settingsId(settings.workspaceId, 'workspaceId', filePath),
     projectId: settingsId(settings.projectId, 'projectId', filePath),
+    billable: settingsFlag(settings.billable, 'billable', filePath),
   };
 }
 
