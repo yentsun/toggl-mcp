@@ -20,7 +20,7 @@ Call `toggl_get_configuration`. It is read-only and never returns credentials. E
 | `source` | Meaning | What to pass |
 | --- | --- | --- |
 | `configuration` | Set in `.yt-toggl-mcp.json`. | Nothing, unless overriding deliberately. |
-| `derived` | A server fallback: the sole accessible workspace, or `billable: false`. | Nothing. It serves reads; a derived workspace does not make timer writes possible. |
+| `derived` | A server fallback: the sole accessible workspace, or `billable: false`. | Nothing. It serves reads; a derived workspace does not make starting a timer possible. |
 | `unset` | No value and no fallback. | Reads may take a verified `workspace_id`; starting a timer needs a verified `project_id`. Never invent ids. |
 
 `project_configured` is the field to check before starting a timer. When it is `false`, no project

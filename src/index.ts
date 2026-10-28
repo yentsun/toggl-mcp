@@ -51,7 +51,7 @@ if (argv.includes('--help') || argv.includes('-h')) {
       `  ${credentialsPath()}\n` +
       `    {"apiToken": "<toggl token>"}\n\n` +
       `Project settings (project-scoped defaults, never the token; missing only warns,\n` +
-      `and timer writes then fail until the user asks to configure it):\n` +
+      `and starting a timer then fails until the user asks to configure it):\n` +
       `  ${projectSettingsPath()}\n` +
       `    {"workspaceId": 1234567, "projectId": 216478744, "billable": true}\n\n` +
       `Precedence: explicit tool arguments > project settings file.\n` +
@@ -118,15 +118,16 @@ function instructions(): string {
   if (hasSettingsFile) {
     return (
       'Toggl Track time tracking. This repository has a project settings file but no projectId, ' +
-      'so timer writes fail with PROJECT_SETTINGS_MISSING and record nothing, while reads work. ' +
-      'Call toggl_get_configuration to see which of workspaceId, projectId, and billable are set. ' +
-      'Ask the user whether to configure Toggl for this project before running the toggl-setup skill.'
+      'so starting or creating a timer fails with PROJECT_SETTINGS_MISSING and records nothing, ' +
+      'while reads work. Call toggl_get_configuration to see which of workspaceId, projectId, and ' +
+      'billable are set. Ask the user whether to configure Toggl for this project before running ' +
+      'the toggl-setup skill.'
     );
   }
   return [
     'Toggl Track time tracking. This repository is NOT configured for Toggl: there is no',
-    '.yt-toggl-mcp.json, so timer writes fail with PROJECT_SETTINGS_MISSING and record nothing.',
-    'Reads still work. Do not configure it on your own initiative, and do not ask on the',
+    '.yt-toggl-mcp.json, so starting or creating a timer fails with PROJECT_SETTINGS_MISSING and',
+    'records nothing. Reads still work. Do not configure it on your own initiative, and do not ask on the',
     'first message or during unrelated work. Configure only when the user explicitly asks to',
     'set up or configure Toggl for this project; then run the toggl-setup skill:',
     '1. call toggl_check_auth, and guide authorization if the token is missing or rejected;',

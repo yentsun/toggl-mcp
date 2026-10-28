@@ -7,7 +7,7 @@ description: Use only when the user explicitly asks to set up, configure, or re-
 
 `yt-toggl-mcp` associates one Toggl project with each repository through
 `.yt-toggl-mcp.json` in the repository root. Until that file exists the server still answers reads,
-but timer writes fail with `PROJECT_SETTINGS_MISSING` and record nothing.
+but starting or creating a timer fails with `PROJECT_SETTINGS_MISSING` and records nothing.
 
 Run this flow **only when the user asks to configure Toggl for this repository**. The server never
 configures itself: do not run it on the first message, and do not offer it while doing unrelated

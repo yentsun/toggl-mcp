@@ -223,9 +223,10 @@ and `yt-zoho-mcp`.
 
 **3. Configure when you want to track**
 
-A repository starts unconfigured: reads work, timer writes fail with `PROJECT_SETTINGS_MISSING` and
-record nothing. Ask opencode to configure Toggl for this repository when you want to track time
-here. It then runs the `toggl-setup` skill — checks the token, guides authorization if needed, lists
+A repository starts unconfigured: reads work, starting or creating a timer fails with
+`PROJECT_SETTINGS_MISSING` and records nothing. Ask opencode to configure Toggl for this repository
+when you want to track time here. It then runs the `toggl-setup` skill — checks the token, guides
+authorization if needed, lists
 the workspaces and projects, asks which project this repository should use, writes the file, and
 adds it to `.gitignore`. It does not do this on its own, and not on the first message.
 
