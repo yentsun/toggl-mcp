@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  ConfiguredWorkspaceMismatchError,
   ProjectValidationError,
   WorkspaceResolutionError,
   WorkspaceValidationError,
+  describeConfiguration,
   parseId,
   resolveEntryScope,
   resolveProjectId,
@@ -248,7 +250,7 @@ describe('resolveEntryScope', () => {
     ).resolves.toEqual({ workspaceId: 7, projectId: 300 });
   });
 
-  it('never applies the configured billable flag in another workspace', async () => {
+  it('refuses a workspace override that differs from the configured one', async () => {
     const other: Workspace = { id: 9, name: 'nine' };
     const api = {
       getWorkspaces: vi.fn().mockResolvedValue([workspace, other]),
@@ -256,9 +258,19 @@ describe('resolveEntryScope', () => {
       getProjects: vi.fn().mockResolvedValue([]),
     } as unknown as TogglAPI;
 
-    await expect(
-      resolveEntryScope(api, { workspace_id: 9 }, { workspaceId: 7, projectId: 300, billable: true })
-    ).resolves.toStrictEqual({ workspaceId: 9, projectId: undefined });
+    // The entry must never land in another workspace, and must never be
+    // silently redirected into the configured one either.
+    const error = await resolveEntryScope(
+      api,
+      { workspace_id: 9 },
+      { workspaceId: 7, projectId: 300, billable: true }
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(ConfiguredWorkspaceMismatchError);
+    expect(error).toMatchObject({ code: 'CONFIGURED_WORKSPACE_MISMATCH' });
+    expect((error as Error).message).toContain('configured workspace (7) is available');
+    // Refused before any project or workspace lookup that costs a request.
+    expect(api.getProjects).not.toHaveBeenCalled();
   });
 
   it('uses the configured project when the caller repeats the configured workspace', async () => {
@@ -289,7 +301,7 @@ describe('resolveEntryScope', () => {
     expect((error as Error).message).toMatch(/project settings file/);
   });
 
-  it('does not apply the configured project in another workspace', async () => {
+  it('still works without a configured workspace by trusting the entry owner', async () => {
     const other: Workspace = { id: 9, name: 'nine' };
     const api = {
       getWorkspaces: vi.fn().mockResolvedValue([workspace, other]),
@@ -297,10 +309,13 @@ describe('resolveEntryScope', () => {
       getProjects: vi.fn().mockResolvedValue([]),
     } as unknown as TogglAPI;
 
+    // Nothing is configured to bind against, so the supplied id is simply
+    // verified as accessible; the project-only default does not fit there, so
+    // it is skipped with the notice callers already know.
     await expect(
-      resolveEntryScope(api, { workspace_id: 9 }, { workspaceId: 7, projectId: 300 })
-    ).resolves.toStrictEqual({ workspaceId: 9, projectId: undefined });
-    expect(api.getProjects).not.toHaveBeenCalled();
+      resolveEntryScope(api, { workspace_id: 9 }, { projectId: 300 })
+    ).resolves.toStrictEqual({ workspaceId: 9, projectId: undefined, defaultProjectSkipped: true });
+    expect(api.getProjects).toHaveBeenCalledTimes(1);
   });
 
   it('applies a project-only default in the workspace that owns it', async () => {
@@ -346,5 +361,121 @@ describe('resolveEntryScope', () => {
       projectId: undefined,
     });
     expect(api.getProjects).not.toHaveBeenCalled();
+  });
+});
+
+describe('workspace binding', () => {
+  it('accepts a repeated configured workspace without an extra request', async () => {
+    const api = fakeApi([workspace, { id: 9, name: 'nine' }]);
+
+    await expect(
+      resolveWorkspaceId(api, 7, 7, { boundToDefault: true })
+    ).resolves.toBe(7);
+    expect(api.getWorkspaces).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a different workspace when bound, naming both ids', async () => {
+    const api = fakeApi([workspace, { id: 9, name: 'nine' }]);
+
+    const error = await resolveWorkspaceId(api, 9, 7, { boundToDefault: true }).catch(
+      (caught: unknown) => caught
+    );
+
+    expect(error).toBeInstanceOf(ConfiguredWorkspaceMismatchError);
+    expect(error).toMatchObject({ suppliedWorkspaceId: 9, configuredWorkspaceId: 7 });
+  });
+
+  it('checks the bound id before any network call', async () => {
+    const api = fakeApi([workspace, { id: 9, name: 'nine' }]);
+
+    await expect(
+      resolveWorkspaceId(api, 9, 7, { boundToDefault: true })
+    ).rejects.toBeInstanceOf(ConfiguredWorkspaceMismatchError);
+    expect(api.getWorkspaces).not.toHaveBeenCalled();
+  });
+
+  it('leaves an unbound call free to name another workspace', async () => {
+    const api = fakeApi([workspace, { id: 9, name: 'nine' }]);
+
+    await expect(resolveWorkspaceId(api, 9, 7)).resolves.toBe(9);
+  });
+
+  it('binds an entry override to the configured workspace', async () => {
+    const api = fakeApi([workspace, { id: 9, name: 'nine' }]);
+
+    await expect(resolveWorkspaceForEntry(api, 42, 9, 7)).rejects.toBeInstanceOf(
+      ConfiguredWorkspaceMismatchError
+    );
+    expect(api.getTimeEntry).not.toHaveBeenCalled();
+  });
+
+  it('verifies the entry workspace when no override is given', async () => {
+    const api = fakeApi([workspace], [], { id: 42, workspace_id: 7 });
+
+    await expect(resolveWorkspaceForEntry(api, 42, undefined, 7)).resolves.toBe(7);
+  });
+});
+
+describe('describeConfiguration', () => {
+  const path = 'F:\\repo\\.yt-toggl-mcp.json';
+
+  it('reports configured values with their source', async () => {
+    const api = fakeApi([workspace]);
+
+    const described = await describeConfiguration(
+      api,
+      { workspaceId: 7, projectId: 300, billable: true },
+      path,
+      true
+    );
+
+    expect(described).toMatchObject({
+      settingsPath: path,
+      settingsLoaded: true,
+      projectConfigured: true,
+      workspace: { value: 7, source: 'configuration', configured: true },
+      project: { value: 300, source: 'configuration', configured: true },
+      billable: { value: true, source: 'configuration', configured: true },
+    });
+  });
+
+  it('derives the workspace when it is the only one and none is configured', async () => {
+    const described = await describeConfiguration(fakeApi([workspace]), {}, path, true);
+
+    expect(described.workspace).toMatchObject({ value: 7, source: 'derived', configured: false });
+    // The regression this covers: a usable-looking workspace on a repo where
+    // every timer write still needs a project to be passed or configured.
+    expect(described.projectConfigured).toBe(false);
+    expect(described.workspace.detail).toMatch(/reads/);
+  });
+
+  it('reports an ambiguous workspace as unset rather than guessing', async () => {
+    const api = fakeApi([workspace, { id: 9, name: 'nine' }]);
+
+    const described = await describeConfiguration(api, {}, null, false);
+
+    expect(described.settingsLoaded).toBe(false);
+    // No file means no path, so nothing reports a location that does not exist.
+    expect(described.settingsPath).toBeNull();
+    expect(described.workspace).toMatchObject({ value: null, source: 'unset' });
+    expect(described.workspace.detail).toMatch(/several workspaces/);
+  });
+
+  it('reports an unconfigured billable default as unbilled', async () => {
+    const described = await describeConfiguration(fakeApi([workspace]), {}, path, true);
+
+    expect(described.billable).toMatchObject({ value: false, source: 'derived' });
+  });
+
+  it('never includes settings file contents, only the path', async () => {
+    const described = await describeConfiguration(
+      fakeApi([workspace]),
+      { workspaceId: 7, projectId: 300 },
+      path,
+      true
+    );
+
+    expect(JSON.stringify(described)).not.toMatch(/apiToken/);
+    expect(described).not.toHaveProperty('settings');
   });
 });

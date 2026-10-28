@@ -11,6 +11,7 @@ stripped from every response and user emails are masked.
 | Tool | What it does |
 | --- | --- |
 | `toggl_check_auth` | Verify the token; returns the (masked) user and accessible workspaces. |
+| `toggl_get_configuration` | Read-only: effective workspace, project, and billable default with their source (`configuration`/`derived`/`unset`). No credentials. |
 | `toggl_get_quota` | Remaining API requests and reset time per organization. |
 | `toggl_list_workspaces` | List accessible workspaces. |
 | `toggl_list_projects` | List projects in a workspace. |
@@ -27,9 +28,22 @@ stripped from every response and user emails are masked.
 | `toggl_report` | Total time for a range, grouped by project, sorted by hours. |
 
 `workspace_id` defaults to the configured workspace and `project_id` defaults to the configured
-project from the project settings file; explicit arguments always win. The default project is used
-only where it belongs: tracking in another workspace never inherits it, and with no `workspaceId`
-configured it is applied only if the resolved workspace owns that project.
+project from the project settings file; explicit arguments always win. Timer operations are bound to
+a configured workspace: repeating that `workspace_id` is accepted, naming another one fails with
+`CONFIGURED_WORKSPACE_MISMATCH` instead of tracking in the wrong place. Without `workspaceId`, the
+workspace comes from the call or the sole accessible workspace, and a project-only default is
+applied only if the resolved workspace owns that project.
+
+`toggl_get_configuration` reports those effective values and where each came from, so a caller can
+see the defaults instead of guessing ids: `configuration` (in the settings file), `derived` (a
+server fallback such as the sole workspace or `billable: false`), or `unset`. Error results carry a
+`category` — `invalid_argument`, `configuration`, `authentication`, or `upstream` — so a bad argument
+is not mistaken for an expired token.
+
+Binding applies to timer writes only. `toggl_list_projects`, `toggl_list_clients`, `toggl_list_tags`,
+and `toggl_report` still accept any accessible `workspace_id`, because browsing or reporting across
+workspaces is a read that changes nothing; `toggl_report` scopes its totals to the workspace it
+resolved, so name one deliberately when you mean another.
 
 `period` accepts `today`, `yesterday`, `week`, `lastWeek`, `month`, `lastMonth`. Ranges are
 interpreted in local time and `end_date` is inclusive at the tool boundary. `since` takes unix
@@ -87,13 +101,15 @@ the file to create. `workspaceId`/`projectId` in the user file are ignored.**
 
 A token must come from one of the two sources, otherwise the server exits with a message naming the
 file to create. The `toggl-setup` skill (`.opencode/skills/toggl-setup/SKILL.md`) walks a project
-through creating the settings file. An `apiToken` key in it is rejected, because a project file may
-be committed by mistake while the token stays user-scoped.
+through creating the settings file, and the `toggl-configuration` skill
+(`.opencode/skills/toggl-configuration/SKILL.md`) covers verifying the effective defaults and
+switching tasks without overriding them. An `apiToken` key in the settings file is rejected,
+because a project file may be committed by mistake while the token stays user-scoped.
 
 A missing settings file does not stop the server: it logs a warning to stderr, the read tools keep
-working, and any write that would rely on the configured project fails with
-`PROJECT_SETTINGS_MISSING` instead of creating an entry with no project. A malformed file or an
-invalid id still stops startup.
+working, and every timer write fails with `PROJECT_SETTINGS_MISSING` — recording nothing rather
+than an entry with no project — unless a verified `project_id` is passed for a one-off entry. A
+malformed file or an invalid id still stops startup.
 
 Both keys in the project file are optional: omit `workspaceId` if you only have one workspace, and
 omit `projectId` if you do not want a default project.
@@ -106,10 +122,9 @@ when the caller passes no `billable`, and only where the configured project appl
 
 `projectId` is used only where it belongs, and is verified against the workspace before any write,
 so an entry never lands in the wrong project. When `workspaceId` is set, the project applies while
-tracking in that workspace and a stale id fails with `INVALID_PROJECT_ID`; naming another
-`workspace_id` never inherits it. Without `workspaceId`, the project is applied when the resolved
-workspace owns it and ignored when it does not; that check costs an extra request per write, and
-the result carries a `notice` when the project was skipped.
+tracking in that workspace and a stale id fails with `INVALID_PROJECT_ID`. Without `workspaceId`,
+the project is applied when the resolved workspace owns it and ignored when it does not; that check
+costs an extra request per write, and the result carries a `notice` when the project was skipped.
 
 Keep `.yt-toggl-mcp.json` out of version control so no Toggl ids or personal tracking defaults
 appear in tracked repository files, and add it to each project's `.gitignore`.
@@ -122,14 +137,16 @@ the repository therefore finds the file, so no extra configuration is needed. A 
 repository finds nothing and the server warns.
 
 No flag or environment variable selects another location: one repository, one
-`.yt-toggl-mcp.json`. A missing file does not break the server — reads keep working and writes that
-need a project default fail with `PROJECT_SETTINGS_MISSING` — so the first run can still authorize
-and pick a project. The server's instructions ask the agent to run the `toggl-setup` skill in that
-case.
+`.yt-toggl-mcp.json`. A missing file does not break the server — reads keep working and timer
+writes fail with `PROJECT_SETTINGS_MISSING` without recording anything — so a repository starts
+unconfigured and stays that way until someone configures it. Setup is never automatic: the agent
+runs the `toggl-setup` skill only when the user explicitly asks to configure Toggl for the
+repository.
 
 Precedence, highest first:
 
-1. explicit tool arguments (`workspace_id`, `project_id`)
+1. explicit tool arguments (`workspace_id`, `project_id`), where a configured `workspaceId` accepts
+   only its own id
 2. `.yt-toggl-mcp.json` from the launch directory up to the repository root
 
 A malformed settings file, or an id that is not a positive integer, stops the server with the path
@@ -204,12 +221,14 @@ repository whose `.yt-toggl-mcp.json` the server should read:
 No `environment` block is needed: the server reads its own credentials file, like `yt-gmail-mcp`
 and `yt-zoho-mcp`.
 
-**3. Let the setup run**
+**3. Configure when you want to track**
 
-The server's instructions tell the agent to run the `toggl-setup` skill when this repository has no
-`.yt-toggl-mcp.json`. It checks the token, guides authorization if needed, lists the workspaces and
-projects, asks which project this repository should use, writes the file, and adds it to
-`.gitignore`.
+A repository starts unconfigured: reads work, starting or creating a timer fails with
+`PROJECT_SETTINGS_MISSING` and records nothing. Ask opencode to configure Toggl for this repository
+when you want to track time here. It then runs the `toggl-setup` skill — checks the token, guides
+authorization if needed, lists
+the workspaces and projects, asks which project this repository should use, writes the file, and
+adds it to `.gitignore`. It does not do this on its own, and not on the first message.
 
 The server finds the file by walking up from its launch directory to the repository root, so one
 global `yt-toggl-mcp` entry covers every repository.

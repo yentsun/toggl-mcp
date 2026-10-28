@@ -46,6 +46,13 @@ export function projectSettingsPath(cwd: string = process.cwd()): string {
   return resolve(cwd, PROJECT_SETTINGS_FILENAME);
 }
 
+/** Where the project defaults came from, so callers can report or re-read them. */
+export interface LoadedProjectSettings {
+  settings: ProjectSettings;
+  /** The file the values were read from, or undefined when there is none. */
+  path?: string;
+}
+
 function parseJsonObject(filePath: string, raw: string, label: string): Record<string, unknown> {
   let parsed: unknown;
   try {
@@ -164,17 +171,17 @@ function findProjectSettings(cwd: string): string | undefined {
 export function loadProjectSettings(
   cwd: string = process.cwd(),
   warn: (message: string) => void = console.warn
-): ProjectSettings {
+): LoadedProjectSettings {
   const filePath = findProjectSettings(cwd);
   if (filePath === undefined) {
     warn(`yt-toggl-mcp: ${projectSettingsWarning(projectSettingsPath(cwd))}`);
-    return {};
+    return { settings: {} };
   }
 
   const settings = readJsonObject(filePath, 'project settings file', undefined);
   if (settings === undefined) {
     warn(`yt-toggl-mcp: ${projectSettingsWarning(filePath)}`);
-    return {};
+    return { settings: {} };
   }
 
   if (settings.apiToken !== undefined) {
@@ -185,9 +192,12 @@ export function loadProjectSettings(
   }
 
   return {
-    workspaceId: settingsId(settings.workspaceId, 'workspaceId', filePath),
-    projectId: settingsId(settings.projectId, 'projectId', filePath),
-    billable: settingsFlag(settings.billable, 'billable', filePath),
+    path: filePath,
+    settings: {
+      workspaceId: settingsId(settings.workspaceId, 'workspaceId', filePath),
+      projectId: settingsId(settings.projectId, 'projectId', filePath),
+      billable: settingsFlag(settings.billable, 'billable', filePath),
+    },
   };
 }
 
