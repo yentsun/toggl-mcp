@@ -104,24 +104,40 @@ const ENTRY_SCOPE_DEFAULTS = {
  * but the agent must not configure Toggl on its own initiative: configuration
  * associates someone's real tracking project with a repository, so it only
  * happens when the user asks for it.
+ *
+ * A configured workspace without a configured project is its own state: timer
+ * writes still fail, so saying "unconfigured" would be wrong, and saying
+ * "configured" would hide the failure.
  */
-const INSTRUCTIONS = DEFAULT_PROJECT_ID
-  ? 'Toggl Track time tracking. Timers use the configured project and workspace for this repository.'
-  : [
-      'Toggl Track time tracking. This repository is NOT configured for Toggl: there is no',
-      '.yt-toggl-mcp.json, so timer writes fail with PROJECT_SETTINGS_MISSING and record nothing.',
-      'Reads still work. Do not configure it on your own initiative, and do not ask on the',
-      'first message or during unrelated work. Configure only when the user explicitly asks to',
-      'set up or configure Toggl for this project; then run the toggl-setup skill:',
-      '1. call toggl_check_auth, and guide authorization if the token is missing or rejected;',
-      '2. call toggl_list_workspaces and toggl_list_projects, and ask which project this',
-      '   repository should track against;',
-      '3. write .yt-toggl-mcp.json in the repository root and add it to .gitignore;',
-      '4. verify with toggl_get_configuration after the server restarts.',
-    ].join('\n');
+function instructions(): string {
+  if (DEFAULT_PROJECT_ID !== undefined) {
+    return 'Toggl Track time tracking. Timers use the configured project and workspace for this repository.';
+  }
+  if (hasSettingsFile) {
+    return (
+      'Toggl Track time tracking. This repository has a project settings file but no projectId: ' +
+      'timer writes fail with PROJECT_SETTINGS_MISSING and record nothing, while reads work. Call ' +
+      'toggl_get_configuration to see the effective values. Ask the user whether to configure ' +
+      'Toggl for this project before running the toggl-setup skill.'
+    );
+  }
+  return [
+    'Toggl Track time tracking. This repository is NOT configured for Toggl: there is no',
+    '.yt-toggl-mcp.json, so timer writes fail with PROJECT_SETTINGS_MISSING and record nothing.',
+    'Reads still work. Do not configure it on your own initiative, and do not ask on the',
+    'first message or during unrelated work. Configure only when the user explicitly asks to',
+    'set up or configure Toggl for this project; then run the toggl-setup skill:',
+    '1. call toggl_check_auth, and guide authorization if the token is missing or rejected;',
+    '2. call toggl_list_workspaces and toggl_list_projects, and ask which project this',
+    '   repository should track against;',
+    '3. write .yt-toggl-mcp.json in the repository root and add it to .gitignore;',
+    '4. verify with toggl_get_configuration after the server restarts.',
+  ].join('\n');
+}
+
 const server = new McpServer(
   { name: 'yt-toggl-mcp', version: VERSION },
-  { instructions: INSTRUCTIONS }
+  { instructions: instructions() }
 );
 
 type ToolResult = {
@@ -137,34 +153,47 @@ function ok(data: unknown): ToolResult {
   };
 }
 
-/** Raises when a write would run without the project default it was meant to use. */
+/**
+ * Raises when a timer write would run without the project default it was meant
+ * to use. It says only what is known: the file may exist and simply carry no
+ * projectId, which is a different fix from having no file at all.
+ */
 class ProjectSettingsMissingError extends Error {
   readonly code = 'PROJECT_SETTINGS_MISSING';
 
-  constructor() {
+  constructor(configuredProjectId: number | undefined, settingsFileExists: boolean) {
     super(
-      `This repository is not configured for Toggl, so no timer was started and nothing was ` +
-        `recorded. No project settings file exists at ${projectSettingsPath()}. Ask the user ` +
-        'whether to configure Toggl for this project, then run the toggl-setup skill. To record a ' +
-        'one-off entry somewhere else, pass a verified project_id.'
+      'No time entry was recorded: this repository has no configured project to track against, ' +
+        `and no project_id was passed. ` +
+        (configuredProjectId !== undefined
+          ? `The configured projectId ${configuredProjectId} was not accepted for this workspace; ` +
+            're-list projects and update projectId in the settings file.'
+          : settingsFileExists
+            ? `${projectSettingsPath()} has no "projectId" key. Ask the user whether to configure ` +
+              'Toggl for this project, then run the toggl-setup skill.'
+            : `There is no project settings file at ${projectSettingsPath()}. Ask the user whether ` +
+              'to configure Toggl for this project, then run the toggl-setup skill.')
     );
     this.name = 'ProjectSettingsMissingError';
   }
 }
 
 /**
- * Timer writes depend on the configured project: an unconfigured repository has
- * no project to track against, so it refuses rather than recording an entry
- * that belongs to no project. Reads stay available without it.
+ * Timer writes depend on the configured project: with none, the write refuses
+ * rather than recording an entry that belongs to no project. Reads stay
+ * available without it.
  */
 function assertProjectDefault(scope: EntryScope): void {
-  if (scope.projectId === undefined) throw new ProjectSettingsMissingError();
+  if (scope.projectId === undefined) {
+    throw new ProjectSettingsMissingError(DEFAULT_PROJECT_ID, hasSettingsFile);
+  }
 }
 
 /**
- * A configured default project that does not fit the workspace is skipped
- * rather than fatal, so say so: the caller would otherwise only see an entry
- * with no project. Logged to stderr too, which is the server's log channel.
+ * The one case where a project-less entry is created: a projectId configured
+ * without a workspaceId did not fit the resolved workspace, so it is skipped
+ * rather than fatal. Say so, or the caller only sees an entry with no project.
+ * Logged to stderr too, which is the server's log channel.
  */
 function skippedDefaultProject(scope: EntryScope): Record<string, unknown> {
   if (scope.defaultProjectSkipped !== true) return {};
@@ -229,6 +258,12 @@ function fail(error: unknown): ToolResult {
     payload.available_projects = publicProjects(error.availableProjects);
     // Lets a client tell a bad tool argument from a stale credentials file.
     payload.source = error.source;
+  }
+  // The repository's own settings are the cause, so configuring it is the fix,
+  // not correcting the call or re-authorizing.
+  if (error instanceof ProjectSettingsMissingError) {
+    payload.code = error.code;
+    payload.category = 'configuration';
   }
 
   return { isError: true, ...ok(payload) };
@@ -404,7 +439,7 @@ server.registerTool(
   {
     title: 'Create a time entry',
     description:
-      'Create a completed or running time entry. Provide stop (or duration) for a completed entry; omit both to start a running timer. Omit workspace_id: timer operations use the configured workspace, and naming a different one is refused. project_id defaults to the configured project. Omit billable to use the configured default; pass true for billable work.',
+      'Create a completed or running time entry. Provide stop (or duration) for a completed entry; omit both to start a running timer. Requires a configured project: with none, set it up first (ask the user, then run the toggl-setup skill) rather than inventing a project_id. Omit workspace_id: timer operations use the configured workspace, and naming a different one is refused. project_id defaults to the configured project. Omit billable to use the configured default; pass true for billable work.',
     inputSchema: {
       description: z.string().optional(),
       project_id: z.number().int().positive().optional(),
@@ -531,11 +566,13 @@ server.registerTool(
   {
     title: 'Start timer',
     description:
-      'Start a new running time entry with an optional description, project, and tags. Omit ' +
-      'workspace_id: timer operations use the configured workspace, and naming a different one is ' +
-      'refused. project_id defaults to the configured project. Omit billable to use the configured ' +
-      'default; pass true for billable work. Use this to switch tasks; do not stop the running ' +
-      'entry first unless the caller explicitly asked to stop tracking.',
+      'Start a new running time entry with an optional description, project, and tags. Requires a ' +
+      'configured project: with none, set it up first (ask the user, then run the toggl-setup ' +
+      'skill) rather than inventing a project_id. Omit workspace_id: timer operations use the ' +
+      'configured workspace, and naming a different one is refused. project_id defaults to the ' +
+      'configured project. Omit billable to use the configured default; pass true for billable ' +
+      'work. Use this to switch tasks; do not stop the running entry first unless the caller ' +
+      'explicitly asked to stop tracking.',
     inputSchema: {
       description: z.string().optional(),
       project_id: z.number().int().positive().optional(),

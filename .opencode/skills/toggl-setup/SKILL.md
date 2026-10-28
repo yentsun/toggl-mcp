@@ -37,11 +37,16 @@ work. If the user has not asked, say the repository is unconfigured and wait.
    ```json
    {
      "workspaceId": 1234567,
-     "projectId": 7654321
+     "projectId": 7654321,
+     "billable": true
    }
    ```
 
    Never add an `apiToken` key: the token is user-scoped and the server rejects one here.
+
+   `billable` decides whether this repository's entries show as billable, because a Toggl project's
+   own billable setting does not propagate to its entries. Ask the user whether this project's work
+   is billable and write the answer; omitting the key tracks every entry as unbilled.
 
 5. **Keep it out of version control.** Confirm `.yt-toggl-mcp.json` is ignored — check
    `.gitignore`, and add the line if it is absent. Do not commit the file.
@@ -51,8 +56,8 @@ work. If the user has not asked, say the repository is unconfigured and wait.
    ```
 
 6. **Confirm.** Restart the MCP server so it re-reads the file, then call
-   `toggl_get_configuration` and check that `workspace` and `project` both report
-   `source: "configuration"` with the ids you chose. Only if the user wants a live check, start a
+   `toggl_get_configuration` and check that `workspace`, `project`, and `billable` all report
+   `source: "configuration"` with the values you wrote. Only if the user wants a live check, start a
    throwaway timer with `toggl_start_timer` using a recognisable description, verify the running
    entry's `project_id`, then delete the entry with `toggl_delete_time_entry`. Never leave the probe
    entry running.

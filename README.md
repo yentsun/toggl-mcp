@@ -40,6 +40,11 @@ server fallback such as the sole workspace or `billable: false`), or `unset`. Er
 `category` — `invalid_argument`, `configuration`, `authentication`, or `upstream` — so a bad argument
 is not mistaken for an expired token.
 
+Binding applies to timer writes only. `toggl_list_projects`, `toggl_list_clients`, `toggl_list_tags`,
+and `toggl_report` still accept any accessible `workspace_id`, because browsing or reporting across
+workspaces is a read that changes nothing; `toggl_report` scopes its totals to the workspace it
+resolved, so name one deliberately when you mean another.
+
 `period` accepts `today`, `yesterday`, `week`, `lastWeek`, `month`, `lastMonth`. Ranges are
 interpreted in local time and `end_date` is inclusive at the tool boundary. `since` takes unix
 seconds and, per Toggl, also returns entries deleted since that time.

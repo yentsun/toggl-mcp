@@ -28,6 +28,15 @@ Timer operations (`toggl_start_timer`, `toggl_create_time_entry`, `toggl_update_
 same `workspace_id` is redundant, and passing a different one fails with
 `CONFIGURED_WORKSPACE_MISMATCH`. Omit `workspace_id` rather than repeating it.
 
+### When the project is `unset`
+
+Timer writes fail with `PROJECT_SETTINGS_MISSING` whenever `project` is `unset`, even if a workspace
+is configured. Do not work around it with a `project_id` you did not get from a list:
+
+- `settingsLoaded: true` with `project: unset` — the file exists but has no `projectId`. Tell the
+  user that, and run `toggl-setup` only if they ask to finish configuring.
+- `settingsLoaded: false` — no file. Say the repository is unconfigured and wait for the user to ask.
+
 ## Verify before writing
 
 1. Confirm the token works: `toggl_check_auth`.
@@ -66,7 +75,7 @@ the user chose it. Never construct, increment, or recall an id from memory or an
 | `CONFIGURED_WORKSPACE_MISMATCH` | A `workspace_id` contradicts the configured workspace. | Drop the argument and retry. Do not change the settings file unless the user asks. |
 | `INVALID_WORKSPACE_ID` | The id is not accessible to this token. | Re-list workspaces; do not retry the same id. |
 | `INVALID_PROJECT_ID` | The project is not in the resolved workspace. | Re-list projects. With `source: configuration`, report stale configuration. |
-| `PROJECT_SETTINGS_MISSING` | The repository is unconfigured and no `project_id` was passed. Nothing was recorded. | Tell the user it is unconfigured and wait for them to ask for setup; run `toggl-setup` only then. |
+| `PROJECT_SETTINGS_MISSING` | No configured project and no `project_id` was passed. Nothing was recorded. | Read the message: it distinguishes a missing file from a file without `projectId` from a configured id that did not fit. Report that, and wait for the user to ask for setup. |
 | `category: authentication` | The token is missing, expired, or revoked. | Guide the user to fix the token; retrying will not help. |
 
 An `invalid_argument` error means the call was wrong, not the setup: retry with corrected

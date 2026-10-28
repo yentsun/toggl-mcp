@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -71,5 +71,20 @@ describe('server startup without a project settings file', () => {
     expect(instructions).toContain('toggl-setup');
     expect(instructions).toContain('toggl_check_auth');
     expect(code).not.toBe(1);
+  });
+
+  it('reports a workspace-only configuration separately from no configuration', async () => {
+    const project = mkdtempSync(join(tmpdir(), 'yt-toggl-mcp-startup-'));
+    tempDirs.push(project);
+    writeFileSync(join(project, '.yt-toggl-mcp.json'), JSON.stringify({ workspaceId: 123 }), 'utf8');
+
+    const { stdout } = await handshake(project);
+    const instructions: string = JSON.parse(stdout.trim().split('\n')[0]!).result.instructions;
+
+    // A workspace without a project is neither fully configured nor absent:
+    // reporting "NOT configured / no file" would contradict the file on disk.
+    expect(instructions).toContain('no projectId');
+    expect(instructions).toContain('PROJECT_SETTINGS_MISSING');
+    expect(instructions).not.toContain('there is no\n.yt-toggl-mcp.json');
   });
 });
