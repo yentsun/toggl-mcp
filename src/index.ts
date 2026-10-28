@@ -164,8 +164,7 @@ class ProjectSettingsMissingError extends Error {
 
   constructor(settingsFileExists: boolean) {
     super(
-      'No time entry was recorded: this repository has no configured project to track against, ' +
-        'and no project_id was passed. ' +
+      'No time entry was recorded: this repository has no configured project to track against. ' +
         (settingsFileExists
           ? `${projectSettingsPath()} has no "projectId" key. Ask the user whether to configure ` +
             'Toggl for this project, then run the toggl-setup skill.'

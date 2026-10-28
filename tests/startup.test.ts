@@ -29,7 +29,9 @@ afterEach(() => {
   while (tempDirs.length) rmSync(tempDirs.pop()!, { recursive: true, force: true });
 });
 
-function handshake(cwd: string): Promise<{ code: number | null; stdout: string; stderr: string }> {
+function handshake(
+  cwd: string
+): Promise<{ code: number | null; stdout: string; stderr: string; sawOutput: boolean }> {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [ENTRY], {
       cwd,
@@ -39,6 +41,8 @@ function handshake(cwd: string): Promise<{ code: number | null; stdout: string; 
 
     let stdout = '';
     let stderr = '';
+    // The request line is cached server-side, so one line is enough to assert
+    // on; killing here keeps the case fast but makes the exit code the kill's.
     child.stdout.on('data', (chunk: Buffer) => {
       stdout += chunk.toString();
       if (stdout.includes('\n')) child.kill();
@@ -46,7 +50,7 @@ function handshake(cwd: string): Promise<{ code: number | null; stdout: string; 
     child.stderr.on('data', (chunk: Buffer) => {
       stderr += chunk.toString();
     });
-    child.on('close', (code) => resolve({ code, stdout, stderr }));
+    child.on('close', (code) => resolve({ code, stdout, stderr, sawOutput: stdout !== '' }));
     setTimeout(() => child.kill(), 10_000).unref();
 
     child.stdin.write(`${initialize}\n`);
@@ -58,10 +62,14 @@ describe('server startup without a project settings file', () => {
     const project = mkdtempSync(join(tmpdir(), 'yt-toggl-mcp-startup-'));
     tempDirs.push(project);
 
-    const { code, stdout, stderr } = await handshake(project);
+    const { stdout, stderr, sawOutput } = await handshake(project);
     const response = JSON.parse(stdout.trim().split('\n')[0]!);
     const instructions: string = response.result.instructions;
 
+    // The child is killed once it answers, so its exit code is the kill's and
+    // proves nothing about startup. Output is the signal that matters: only a
+    // server that stayed alive produces a handshake.
+    expect(sawOutput).toBe(true);
     expect(stderr).toContain('Project settings file not found');
     // An unconfigured repository stays unconfigured until the user asks.
     expect(instructions).toContain('NOT configured');
@@ -70,7 +78,6 @@ describe('server startup without a project settings file', () => {
     // The setup flow is still reachable when the user does ask.
     expect(instructions).toContain('toggl-setup');
     expect(instructions).toContain('toggl_check_auth');
-    expect(code).not.toBe(1);
   });
 
   it('reports a workspace-only configuration separately from no configuration', async () => {
@@ -78,9 +85,10 @@ describe('server startup without a project settings file', () => {
     tempDirs.push(project);
     writeFileSync(join(project, '.yt-toggl-mcp.json'), JSON.stringify({ workspaceId: 123 }), 'utf8');
 
-    const { stdout } = await handshake(project);
+    const { stdout, sawOutput } = await handshake(project);
     const instructions: string = JSON.parse(stdout.trim().split('\n')[0]!).result.instructions;
 
+    expect(sawOutput).toBe(true);
     // A workspace without a project is neither fully configured nor absent:
     // reporting "NOT configured / no file" would contradict the file on disk.
     expect(instructions).toContain('no projectId');
