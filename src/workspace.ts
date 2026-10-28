@@ -199,10 +199,13 @@ export interface EffectiveConfiguration {
   settingsPath: string | null;
   settingsLoaded: boolean;
   /**
-   * Whether a timer write would succeed. Every timer write needs a project, so
-   * a derived workspace alone is enough for reads but not for tracking.
+   * Whether a project is configured for this repository. Every timer write
+   * needs a project, so false means the caller must pass a verified project_id
+   * or run setup — a usable-looking (even derived) workspace does not change
+   * that. This reflects the configured default only; it cannot know a
+   * project_id the caller might pass.
    */
-  timerWritesReady: boolean;
+  projectConfigured: boolean;
   workspace: EffectiveValue<number>;
   project: EffectiveValue<number>;
   billable: EffectiveValue<boolean>;
@@ -255,8 +258,8 @@ export async function describeConfiguration(
       workspaces.length === 1
         ? fromDerived(
             workspaces[0]!.id,
-            'No workspaceId configured; the sole accessible workspace is used for reads, but a ' +
-              'timer write still needs a configured project.'
+            'No workspaceId configured; the sole accessible workspace is used for reads. A timer ' +
+              'write still needs a project, configured or passed as project_id.'
           )
         : unset<number>(
             workspaces.length === 0
@@ -268,8 +271,8 @@ export async function describeConfiguration(
   const project =
     settings.projectId === undefined
       ? unset<number>(
-          'No projectId configured, so timer writes fail with PROJECT_SETTINGS_MISSING and ' +
-            'record nothing.'
+          'No projectId configured, so timer writes fail with PROJECT_SETTINGS_MISSING unless ' +
+            'a verified project_id is passed.'
         )
       : fromConfiguration(
           settings.projectId,
@@ -290,9 +293,9 @@ export async function describeConfiguration(
   return {
     settingsPath,
     settingsLoaded,
-    // Mirrors assertProjectDefault: a timer write requires a project, whether it
-    // comes from the settings file or from a verified project_id argument.
-    timerWritesReady: settings.projectId !== undefined,
+    // Reflects the configured default only: a timer write needs a project, and
+    // the report cannot know a project_id the caller might pass.
+    projectConfigured: settings.projectId !== undefined,
     workspace,
     project,
     billable,

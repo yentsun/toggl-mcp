@@ -432,7 +432,7 @@ describe('describeConfiguration', () => {
     expect(described).toMatchObject({
       settingsPath: path,
       settingsLoaded: true,
-      timerWritesReady: true,
+      projectConfigured: true,
       workspace: { value: 7, source: 'configuration', configured: true },
       project: { value: 300, source: 'configuration', configured: true },
       billable: { value: true, source: 'configuration', configured: true },
@@ -444,8 +444,8 @@ describe('describeConfiguration', () => {
 
     expect(described.workspace).toMatchObject({ value: 7, source: 'derived', configured: false });
     // The regression this covers: a usable-looking workspace on a repo where
-    // every timer write would still fail for want of a project.
-    expect(described.timerWritesReady).toBe(false);
+    // every timer write still needs a project to be passed or configured.
+    expect(described.projectConfigured).toBe(false);
     expect(described.workspace.detail).toMatch(/reads/);
   });
 

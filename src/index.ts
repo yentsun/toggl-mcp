@@ -330,11 +330,12 @@ server.registerTool(
     title: 'Get effective configuration',
     description:
       'Read-only: the effective workspace, project, and billable default, each with its source ' +
-      '(configuration file, derived, or unset), plus timer_writes_ready. Check timer_writes_ready ' +
-      'before starting a timer: it is false when no project is configured, and then timer writes ' +
-      'fail with PROJECT_SETTINGS_MISSING. A derived workspace serves reads but does not make ' +
-      'writes possible. Timer operations are bound to a configured workspace: pass no ' +
-      'workspace_id rather than repeating or replacing it. Contains no credentials.',
+      '(configuration file, derived, or unset), plus project_configured. project_configured is ' +
+      'false when no project is configured for this repository: timer writes then fail with ' +
+      'PROJECT_SETTINGS_MISSING unless you pass a verified project_id from toggl_list_projects. ' +
+      'A derived workspace serves reads but does not make writes possible. Timer operations are ' +
+      'bound to a configured workspace: pass no workspace_id rather than repeating or replacing ' +
+      'it. Contains no credentials.',
     inputSchema: {},
   },
   async () => {
@@ -343,7 +344,7 @@ server.registerTool(
       return ok({
         settings_path: described.settingsPath,
         settings_loaded: described.settingsLoaded,
-        timer_writes_ready: described.timerWritesReady,
+        project_configured: described.projectConfigured,
         workspace: described.workspace,
         project: described.project,
         billable: described.billable,
