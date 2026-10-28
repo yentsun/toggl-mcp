@@ -115,10 +115,10 @@ function instructions(): string {
   }
   if (hasSettingsFile) {
     return (
-      'Toggl Track time tracking. This repository has a project settings file but no projectId: ' +
-      'timer writes fail with PROJECT_SETTINGS_MISSING and record nothing, while reads work. Call ' +
-      'toggl_get_configuration to see the effective values. Ask the user whether to configure ' +
-      'Toggl for this project before running the toggl-setup skill.'
+      'Toggl Track time tracking. This repository has a project settings file but no projectId, ' +
+      'so timer writes fail with PROJECT_SETTINGS_MISSING and record nothing, while reads work. ' +
+      'Call toggl_get_configuration to see which of workspaceId, projectId, and billable are set. ' +
+      'Ask the user whether to configure Toggl for this project before running the toggl-setup skill.'
     );
   }
   return [
@@ -155,24 +155,22 @@ function ok(data: unknown): ToolResult {
 
 /**
  * Raises when a timer write would run without the project default it was meant
- * to use. It says only what is known: the file may exist and simply carry no
- * projectId, which is a different fix from having no file at all.
+ * to use. A configured projectId that does not fit the workspace surfaces as
+ * ProjectValidationError before this is reached, so the only states left are a
+ * file without a projectId and no file at all.
  */
 class ProjectSettingsMissingError extends Error {
   readonly code = 'PROJECT_SETTINGS_MISSING';
 
-  constructor(configuredProjectId: number | undefined, settingsFileExists: boolean) {
+  constructor(settingsFileExists: boolean) {
     super(
       'No time entry was recorded: this repository has no configured project to track against, ' +
-        `and no project_id was passed. ` +
-        (configuredProjectId !== undefined
-          ? `The configured projectId ${configuredProjectId} was not accepted for this workspace; ` +
-            're-list projects and update projectId in the settings file.'
-          : settingsFileExists
-            ? `${projectSettingsPath()} has no "projectId" key. Ask the user whether to configure ` +
-              'Toggl for this project, then run the toggl-setup skill.'
-            : `There is no project settings file at ${projectSettingsPath()}. Ask the user whether ` +
-              'to configure Toggl for this project, then run the toggl-setup skill.')
+        'and no project_id was passed. ' +
+        (settingsFileExists
+          ? `${projectSettingsPath()} has no "projectId" key. Ask the user whether to configure ` +
+            'Toggl for this project, then run the toggl-setup skill.'
+          : `There is no project settings file at ${projectSettingsPath()}. Ask the user whether ` +
+            'to configure Toggl for this project, then run the toggl-setup skill.')
     );
     this.name = 'ProjectSettingsMissingError';
   }
@@ -184,9 +182,7 @@ class ProjectSettingsMissingError extends Error {
  * available without it.
  */
 function assertProjectDefault(scope: EntryScope): void {
-  if (scope.projectId === undefined) {
-    throw new ProjectSettingsMissingError(DEFAULT_PROJECT_ID, hasSettingsFile);
-  }
+  if (scope.projectId === undefined) throw new ProjectSettingsMissingError(hasSettingsFile);
 }
 
 /**
