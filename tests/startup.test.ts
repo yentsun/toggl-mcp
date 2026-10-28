@@ -29,9 +29,13 @@ afterEach(() => {
   while (tempDirs.length) rmSync(tempDirs.pop()!, { recursive: true, force: true });
 });
 
-function handshake(
-  cwd: string
-): Promise<{ code: number | null; stdout: string; stderr: string; sawOutput: boolean }> {
+/**
+ * Send one initialize request to the built server and return its answer line.
+ * The child is killed as soon as a line arrives, which keeps each case fast but
+ * means its exit code reflects the kill, not startup; `answered` reports
+ * whether a JSON-RPC reply was actually received.
+ */
+function handshake(cwd: string): Promise<{ answered: boolean; reply: string; stderr: string }> {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [ENTRY], {
       cwd,
@@ -41,16 +45,18 @@ function handshake(
 
     let stdout = '';
     let stderr = '';
-    // The request line is cached server-side, so one line is enough to assert
-    // on; killing here keeps the case fast but makes the exit code the kill's.
     child.stdout.on('data', (chunk: Buffer) => {
       stdout += chunk.toString();
+      // The handshake reply is one line; a second line would be killed anyway.
       if (stdout.includes('\n')) child.kill();
     });
     child.stderr.on('data', (chunk: Buffer) => {
       stderr += chunk.toString();
     });
-    child.on('close', (code) => resolve({ code, stdout, stderr, sawOutput: stdout !== '' }));
+    child.on('close', () => {
+      const reply = stdout.split('\n').find((line) => line.includes('"jsonrpc"')) ?? '';
+      resolve({ answered: reply !== '', reply, stderr });
+    });
     setTimeout(() => child.kill(), 10_000).unref();
 
     child.stdin.write(`${initialize}\n`);
@@ -62,14 +68,13 @@ describe('server startup without a project settings file', () => {
     const project = mkdtempSync(join(tmpdir(), 'yt-toggl-mcp-startup-'));
     tempDirs.push(project);
 
-    const { stdout, stderr, sawOutput } = await handshake(project);
-    const response = JSON.parse(stdout.trim().split('\n')[0]!);
-    const instructions: string = response.result.instructions;
+    const { answered, reply, stderr } = await handshake(project);
 
-    // The child is killed once it answers, so its exit code is the kill's and
-    // proves nothing about startup. Output is the signal that matters: only a
-    // server that stayed alive produces a handshake.
-    expect(sawOutput).toBe(true);
+    // A non-empty stdout would not prove a handshake, so assert the JSON-RPC
+    // reply itself; a crash before answering fails here with a clear message.
+    expect(answered, `no JSON-RPC reply; stderr: ${stderr}`).toBe(true);
+    const instructions: string = JSON.parse(reply).result.instructions;
+
     expect(stderr).toContain('Project settings file not found');
     // An unconfigured repository stays unconfigured until the user asks.
     expect(instructions).toContain('NOT configured');
@@ -85,10 +90,11 @@ describe('server startup without a project settings file', () => {
     tempDirs.push(project);
     writeFileSync(join(project, '.yt-toggl-mcp.json'), JSON.stringify({ workspaceId: 123 }), 'utf8');
 
-    const { stdout, sawOutput } = await handshake(project);
-    const instructions: string = JSON.parse(stdout.trim().split('\n')[0]!).result.instructions;
+    const { answered, reply, stderr } = await handshake(project);
 
-    expect(sawOutput).toBe(true);
+    expect(answered, `no JSON-RPC reply; stderr: ${stderr}`).toBe(true);
+    const instructions: string = JSON.parse(reply).result.instructions;
+
     // A workspace without a project is neither fully configured nor absent:
     // reporting "NOT configured / no file" would contradict the file on disk.
     expect(instructions).toContain('no projectId');
