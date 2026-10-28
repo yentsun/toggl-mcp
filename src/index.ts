@@ -36,7 +36,7 @@ import {
   summarizeByProject,
 } from './utils.js';
 
-const VERSION = '1.1.0';
+const VERSION = '1.2.0';
 
 const argv = process.argv.slice(2);
 if (argv.includes('--version') || argv.includes('-v')) {
