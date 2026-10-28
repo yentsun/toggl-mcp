@@ -82,7 +82,9 @@ function loadConfig(): { apiToken: string; loaded: LoadedProjectSettings } {
 
 const { apiToken: API_KEY, loaded } = loadConfig();
 const settings = loaded.settings;
-const settingsPath = loaded.path ?? projectSettingsPath();
+// A missing file has no path: reporting the would-be location alongside
+// settingsLoaded: false invites a client to claim the file exists.
+const settingsPath = loaded.path ?? null;
 const hasSettingsFile = loaded.path !== undefined;
 const DEFAULT_WORKSPACE_ID = settings.workspaceId;
 const DEFAULT_PROJECT_ID = settings.projectId;
@@ -246,8 +248,7 @@ function fail(error: unknown): ToolResult {
   }
   if (error instanceof ProjectValidationError) {
     payload.code = error.code;
-    payload.category =
-      error.source === 'configuration' ? 'configuration' : 'invalid_argument';
+    payload.category = error.source === 'configuration' ? 'configuration' : 'invalid_argument';
     payload.project_id = error.projectId;
     payload.workspace_id = error.workspaceId;
     payload.available_projects = publicProjects(error.availableProjects);
@@ -329,15 +330,23 @@ server.registerTool(
     title: 'Get effective configuration',
     description:
       'Read-only: the effective workspace, project, and billable default, each with its source ' +
-      '(configuration file, derived, or unset). Call this before passing workspace_id, project_id, ' +
-      'or billable. Timer operations are bound to the configured workspace when one is set: pass ' +
-      'no workspace_id rather than repeating or replacing it. Contains no credentials.',
+      '(configuration file, derived, or unset), plus timer_writes_ready. Check timer_writes_ready ' +
+      'before starting a timer: it is false when no project is configured, and then timer writes ' +
+      'fail with PROJECT_SETTINGS_MISSING. A derived workspace serves reads but does not make ' +
+      'writes possible. Timer operations are bound to a configured workspace: pass no ' +
+      'workspace_id rather than repeating or replacing it. Contains no credentials.',
     inputSchema: {},
   },
   async () => {
     try {
+      const described = await describeConfiguration(api, settings, settingsPath, hasSettingsFile);
       return ok({
-        ...(await describeConfiguration(api, settings, settingsPath, hasSettingsFile)),
+        settings_path: described.settingsPath,
+        settings_loaded: described.settingsLoaded,
+        timer_writes_ready: described.timerWritesReady,
+        workspace: described.workspace,
+        project: described.project,
+        billable: described.billable,
         billable_behavior:
           'Pass billable: true for billable work. Omission uses the billable value above, but only ' +
           'for entries in the configured project; an explicitly passed project_id never inherits it.',

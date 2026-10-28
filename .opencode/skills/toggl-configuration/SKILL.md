@@ -20,22 +20,25 @@ Call `toggl_get_configuration`. It is read-only and never returns credentials. E
 | `source` | Meaning | What to pass |
 | --- | --- | --- |
 | `configuration` | Set in `.yt-toggl-mcp.json`. | Nothing, unless overriding deliberately. |
-| `derived` | The server's fallback: the sole accessible workspace, or `billable: false`. | Nothing; the server applies it. |
-| `unset` | No value and no fallback. | `project_id`/`workspace_id` only from a verified list. |
+| `derived` | A server fallback: the sole accessible workspace, or `billable: false`. | Nothing. It serves reads; a derived workspace does not make timer writes possible. |
+| `unset` | No value and no fallback. | `workspace_id` only from a verified list; never invent a `project_id`. |
+
+`timer_writes_ready` is the field to check before tracking anything. When it is `false`, every timer
+write fails with `PROJECT_SETTINGS_MISSING`, however usable the workspace looks — including when
+`workspace` is `derived`.
 
 Timer operations (`toggl_start_timer`, `toggl_create_time_entry`, `toggl_update_time_entry`,
 `toggl_delete_time_entry`) are **bound** when `workspace.source` is `configuration`: passing that
 same `workspace_id` is redundant, and passing a different one fails with
 `CONFIGURED_WORKSPACE_MISMATCH`. Omit `workspace_id` rather than repeating it.
 
-### When the project is `unset`
+### When `timer_writes_ready` is `false`
 
-Timer writes fail with `PROJECT_SETTINGS_MISSING` whenever `project` is `unset`, even if a workspace
-is configured. Do not work around it with a `project_id` you did not get from a list:
+Do not work around it with a `project_id` you did not get from a verified list:
 
-- `settingsLoaded: true` with `project: unset` — the file exists but has no `projectId`. Tell the
+- `settings_loaded: true` with `project: unset` — the file exists but has no `projectId`. Tell the
   user that, and run `toggl-setup` only if they ask to finish configuring.
-- `settingsLoaded: false` — no file. Say the repository is unconfigured and wait for the user to ask.
+- `settings_loaded: false` — no file. Say the repository is unconfigured and wait for the user to ask.
 
 ## Verify before writing
 

@@ -195,9 +195,14 @@ export type SettingsDefaults = ProjectSettings;
  * Reads can still name another workspace, so this is a default, not a bound.
  */
 export interface EffectiveConfiguration {
-  /** Absolute path the settings were read from, without its contents. */
-  settingsPath: string;
+  /** Absolute path the settings were read from, or null when there is no file. */
+  settingsPath: string | null;
   settingsLoaded: boolean;
+  /**
+   * Whether a timer write would succeed. Every timer write needs a project, so
+   * a derived workspace alone is enough for reads but not for tracking.
+   */
+  timerWritesReady: boolean;
   workspace: EffectiveValue<number>;
   project: EffectiveValue<number>;
   billable: EffectiveValue<boolean>;
@@ -235,7 +240,7 @@ function unset<T>(detail: string): EffectiveValue<T> {
 export async function describeConfiguration(
   api: TogglAPI,
   settings: ProjectSettings,
-  settingsPath: string,
+  settingsPath: string | null,
   settingsLoaded: boolean
 ): Promise<EffectiveConfiguration> {
   let workspace: EffectiveValue<number>;
@@ -250,7 +255,8 @@ export async function describeConfiguration(
       workspaces.length === 1
         ? fromDerived(
             workspaces[0]!.id,
-            'No workspaceId configured; the sole accessible workspace is used.'
+            'No workspaceId configured; the sole accessible workspace is used for reads, but a ' +
+              'timer write still needs a configured project.'
           )
         : unset<number>(
             workspaces.length === 0
@@ -262,7 +268,8 @@ export async function describeConfiguration(
   const project =
     settings.projectId === undefined
       ? unset<number>(
-          'No projectId configured; entries are created without a project unless project_id is passed.'
+          'No projectId configured, so timer writes fail with PROJECT_SETTINGS_MISSING and ' +
+            'record nothing.'
         )
       : fromConfiguration(
           settings.projectId,
@@ -280,7 +287,16 @@ export async function describeConfiguration(
           'billable in the project settings file; applied when billable is omitted on the configured project.'
         );
 
-  return { settingsPath, settingsLoaded, workspace, project, billable };
+  return {
+    settingsPath,
+    settingsLoaded,
+    // Mirrors assertProjectDefault: a timer write requires a project, whether it
+    // comes from the settings file or from a verified project_id argument.
+    timerWritesReady: settings.projectId !== undefined,
+    workspace,
+    project,
+    billable,
+  };
 }
 
 export interface EntryScopeInput {

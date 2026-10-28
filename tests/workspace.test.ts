@@ -432,6 +432,7 @@ describe('describeConfiguration', () => {
     expect(described).toMatchObject({
       settingsPath: path,
       settingsLoaded: true,
+      timerWritesReady: true,
       workspace: { value: 7, source: 'configuration', configured: true },
       project: { value: 300, source: 'configuration', configured: true },
       billable: { value: true, source: 'configuration', configured: true },
@@ -442,14 +443,20 @@ describe('describeConfiguration', () => {
     const described = await describeConfiguration(fakeApi([workspace]), {}, path, true);
 
     expect(described.workspace).toMatchObject({ value: 7, source: 'derived', configured: false });
+    // The regression this covers: a usable-looking workspace on a repo where
+    // every timer write would still fail for want of a project.
+    expect(described.timerWritesReady).toBe(false);
+    expect(described.workspace.detail).toMatch(/reads/);
   });
 
   it('reports an ambiguous workspace as unset rather than guessing', async () => {
     const api = fakeApi([workspace, { id: 9, name: 'nine' }]);
 
-    const described = await describeConfiguration(api, {}, path, false);
+    const described = await describeConfiguration(api, {}, null, false);
 
     expect(described.settingsLoaded).toBe(false);
+    // No file means no path, so nothing reports a location that does not exist.
+    expect(described.settingsPath).toBeNull();
     expect(described.workspace).toMatchObject({ value: null, source: 'unset' });
     expect(described.workspace.detail).toMatch(/several workspaces/);
   });

@@ -56,11 +56,11 @@ work. If the user has not asked, say the repository is unconfigured and wait.
    ```
 
 6. **Confirm.** Restart the MCP server so it re-reads the file, then call
-   `toggl_get_configuration` and check that `workspace`, `project`, and `billable` all report
-   `source: "configuration"` with the values you wrote. Only if the user wants a live check, start a
-   throwaway timer with `toggl_start_timer` using a recognisable description, verify the running
-   entry's `project_id`, then delete the entry with `toggl_delete_time_entry`. Never leave the probe
-   entry running.
+   `toggl_get_configuration` and check that `timer_writes_ready` is `true` and that `workspace`,
+   `project`, and `billable` all report `source: "configuration"` with the values you wrote. Only if
+   the user wants a live check, start a throwaway timer with `toggl_start_timer` using a
+   recognisable description, verify the running entry's `project_id`, then delete the entry with
+   `toggl_delete_time_entry`. Never leave the probe entry running.
 
 ## Rules
 
