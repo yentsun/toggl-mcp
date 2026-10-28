@@ -1,16 +1,17 @@
 ---
 name: Toggl Project Setup
-description: Use when `yt-toggl-mcp` reports "Project settings file not found" or a write fails with `PROJECT_SETTINGS_MISSING`, when a repository needs its own Toggl workspace/project defaults, or when asked to configure Toggl for this project.
+description: Use only when the user explicitly asks to set up, configure, or re-configure Toggl for a repository, or when a timer write failed with `PROJECT_SETTINGS_MISSING` and the user asked for it to be fixed. Never run it on first use or on your own initiative.
 ---
 
 # Toggl Project Setup
 
 `yt-toggl-mcp` associates one Toggl project with each repository through
-`.yt-toggl-mcp.json` in the repository root. Until that file exists the server still answers, but
-writes that need a project default fail with `PROJECT_SETTINGS_MISSING`.
+`.yt-toggl-mcp.json` in the repository root. Until that file exists the server still answers reads,
+but timer writes fail with `PROJECT_SETTINGS_MISSING` and record nothing.
 
-Run this flow once per repository. It is also what the server's own instructions ask the agent to do
-on first use, so follow it before any other Toggl work when the file is missing.
+Run this flow **only when the user asks to configure Toggl for this repository**. The server never
+configures itself: do not run it on the first message, and do not offer it while doing unrelated
+work. If the user has not asked, say the repository is unconfigured and wait.
 
 ## Steps
 
@@ -49,10 +50,12 @@ on first use, so follow it before any other Toggl work when the file is missing.
    .yt-toggl-mcp.json
    ```
 
-6. **Confirm.** Restart the MCP server so it re-reads the file, then start a throwaway timer with
-   `toggl_start_timer` using a recognisable description. Verify the running entry's `project_id`
-   matches the chosen project, then delete the entry with `toggl_delete_time_entry`. Never leave the
-   probe entry running.
+6. **Confirm.** Restart the MCP server so it re-reads the file, then call
+   `toggl_get_configuration` and check that `workspace` and `project` both report
+   `source: "configuration"` with the ids you chose. Only if the user wants a live check, start a
+   throwaway timer with `toggl_start_timer` using a recognisable description, verify the running
+   entry's `project_id`, then delete the entry with `toggl_delete_time_entry`. Never leave the probe
+   entry running.
 
 ## Rules
 
@@ -60,3 +63,5 @@ on first use, so follow it before any other Toggl work when the file is missing.
 - A stale id fails writes with `INVALID_PROJECT_ID`; fix it by re-listing projects, not by removing
   the file.
 - Report the path written and the project chosen; do not report the token or its contents.
+- Once configured, timer operations are bound to the configured workspace; see the
+  `toggl-configuration` skill for reading and verifying the effective defaults.

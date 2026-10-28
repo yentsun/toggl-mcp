@@ -39,6 +39,11 @@ function makeProject(contents?: string): string {
   return dir;
 }
 
+/** The settings values alone, which is what most cases assert on. */
+function settingsOf(project: string, warn?: (message: string) => void) {
+  return loadProjectSettings(project, warn).settings;
+}
+
 afterEach(() => {
   while (tempDirs.length) rmSync(tempDirs.pop()!, { recursive: true, force: true });
 });
@@ -145,20 +150,23 @@ describe('loadProjectSettings', () => {
   it('reads the workspace and project defaults from the fixed file', () => {
     const project = makeProject(JSON.stringify({ workspaceId: 1835443, projectId: 216478744 }));
 
-    expect(loadProjectSettings(project)).toEqual({
+    expect(settingsOf(project)).toEqual({
       workspaceId: 1835443,
       projectId: 216478744,
       billable: undefined,
     });
+    // The file and the values come back together: the path is what a stale
+    // configuration error points the caller at.
+    expect(loadProjectSettings(project).path).toBe(join(project, PROJECT_SETTINGS_FILENAME));
   });
 
   it('allows either key to be omitted', () => {
-    expect(loadProjectSettings(makeProject(JSON.stringify({ projectId: 300 })))).toEqual({
+    expect(settingsOf(makeProject(JSON.stringify({ projectId: 300 })))).toEqual({
       workspaceId: undefined,
       projectId: 300,
       billable: undefined,
     });
-    expect(loadProjectSettings(makeProject('{}'))).toEqual({
+    expect(settingsOf(makeProject('{}'))).toEqual({
       workspaceId: undefined,
       projectId: undefined,
       billable: undefined,
@@ -166,7 +174,7 @@ describe('loadProjectSettings', () => {
   });
 
   it('reads the billable default as a boolean', () => {
-    const settings = loadProjectSettings(
+    const settings = settingsOf(
       makeProject(JSON.stringify({ workspaceId: 1835443, projectId: 216478744, billable: true }))
     );
 
@@ -174,7 +182,7 @@ describe('loadProjectSettings', () => {
   });
 
   it('treats a null billable value as unset', () => {
-    expect(loadProjectSettings(makeProject(JSON.stringify({ billable: null })))).toEqual({
+    expect(settingsOf(makeProject(JSON.stringify({ billable: null })))).toEqual({
       workspaceId: undefined,
       projectId: undefined,
       billable: undefined,
@@ -194,7 +202,7 @@ describe('loadProjectSettings', () => {
   it('normalizes ids stored as numeric strings', () => {
     const project = makeProject(JSON.stringify({ workspaceId: '333', projectId: '444' }));
 
-    expect(loadProjectSettings(project)).toEqual({
+    expect(settingsOf(project)).toEqual({
       workspaceId: 333,
       projectId: 444,
       billable: undefined,
@@ -204,7 +212,7 @@ describe('loadProjectSettings', () => {
   it('treats a null value as unset', () => {
     const project = makeProject(JSON.stringify({ workspaceId: null, projectId: 999 }));
 
-    expect(loadProjectSettings(project)).toEqual({
+    expect(settingsOf(project)).toEqual({
       workspaceId: undefined,
       projectId: 999,
       billable: undefined,
@@ -215,11 +223,15 @@ describe('loadProjectSettings', () => {
     const project = makeProject();
     const warnings: string[] = [];
 
-    expect(loadProjectSettings(project, (message) => warnings.push(message))).toEqual({
+    const loaded = loadProjectSettings(project, (message) => warnings.push(message));
+
+    expect(loaded.settings).toEqual({
       workspaceId: undefined,
       projectId: undefined,
       billable: undefined,
     });
+    // No file means no path: reporting one would claim a configuration exists.
+    expect(loaded.path).toBeUndefined();
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toContain(join(project, PROJECT_SETTINGS_FILENAME));
     expect(warnings[0]).toMatch(/toggl_list_projects/);
@@ -237,7 +249,7 @@ describe('loadProjectSettings', () => {
     mkdirSync(nested, { recursive: true });
 
     const warnings: string[] = [];
-    expect(loadProjectSettings(nested, (message) => warnings.push(message))).toEqual({
+    expect(settingsOf(nested, (message) => warnings.push(message))).toEqual({
       workspaceId: 111,
       projectId: 222,
       billable: undefined,
@@ -256,7 +268,7 @@ describe('loadProjectSettings', () => {
     mkdirSync(join(repo, '.git'), { recursive: true });
 
     const warnings: string[] = [];
-    expect(loadProjectSettings(repo, (message) => warnings.push(message))).toEqual({
+    expect(settingsOf(repo, (message) => warnings.push(message))).toEqual({
       workspaceId: undefined,
       projectId: undefined,
       billable: undefined,

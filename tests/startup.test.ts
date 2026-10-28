@@ -6,9 +6,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 /**
  * The published server must reach the handshake without a project settings
- * file, and the handshake must carry the setup instructions that start the
- * guided flow. A startup exit here would take every Toggl tool away from a
- * client that has not configured the file yet, which is what 0.7.0 regressed.
+ * file, and the handshake must tell the model the repository is unconfigured
+ * and must not be configured unprompted. A startup exit here would take every
+ * Toggl tool away from a client that has not configured the file yet, which is
+ * what 0.7.0 regressed.
  */
 const ENTRY = join(process.cwd(), 'dist', 'index.js');
 const tempDirs: string[] = [];
@@ -53,16 +54,22 @@ function handshake(cwd: string): Promise<{ code: number | null; stdout: string; 
 }
 
 describe('server startup without a project settings file', () => {
-  it('warns, completes the handshake, and asks for the setup flow', async () => {
+  it('warns, completes the handshake, and does not ask for automatic setup', async () => {
     const project = mkdtempSync(join(tmpdir(), 'yt-toggl-mcp-startup-'));
     tempDirs.push(project);
 
     const { code, stdout, stderr } = await handshake(project);
     const response = JSON.parse(stdout.trim().split('\n')[0]!);
+    const instructions: string = response.result.instructions;
 
     expect(stderr).toContain('Project settings file not found');
-    expect(response.result.instructions).toContain('toggl-setup');
-    expect(response.result.instructions).toContain('toggl_check_auth');
+    // An unconfigured repository stays unconfigured until the user asks.
+    expect(instructions).toContain('NOT configured');
+    expect(instructions).toContain('explicitly asks');
+    expect(instructions).not.toContain('On the first message, before anything else');
+    // The setup flow is still reachable when the user does ask.
+    expect(instructions).toContain('toggl-setup');
+    expect(instructions).toContain('toggl_check_auth');
     expect(code).not.toBe(1);
   });
 });

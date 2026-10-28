@@ -9,15 +9,17 @@ import {
   loadCredentials,
   loadProjectSettings,
   projectSettingsPath,
-  type ProjectSettings,
+  type LoadedProjectSettings,
 } from './credentials.js';
 import { maskEmail, publicProjects, publicWorkspaces } from './format.js';
 import { collectReportEntries } from './report.js';
 import { TogglAPI, TogglAPIError } from './toggl-api.js';
 import {
+  ConfiguredWorkspaceMismatchError,
   ProjectValidationError,
   WorkspaceResolutionError,
   WorkspaceValidationError,
+  describeConfiguration,
   resolveEntryScope,
   resolveProjectId,
   resolveWorkspaceForEntry,
@@ -48,10 +50,12 @@ if (argv.includes('--help') || argv.includes('-h')) {
       `Credentials (user-scoped; TOGGL_API_KEY overrides the file token):\n` +
       `  ${credentialsPath()}\n` +
       `    {"apiToken": "<toggl token>"}\n\n` +
-      `Project settings (defaults for this project, never the token; missing only warns):\\n` +
+      `Project settings (project-scoped defaults, never the token; missing only warns,\n` +
+      `and timer writes then fail until the user asks to configure it):\n` +
       `  ${projectSettingsPath()}\n` +
       `    {"workspaceId": 1234567, "projectId": 216478744, "billable": true}\n\n` +
-      `Precedence: explicit tool arguments > project settings file.\n\n` +
+      `Precedence: explicit tool arguments > project settings file.\n` +
+      `A configured workspaceId accepts only its own id in timer operations.\n\n` +
       `Environment:\n` +
       `  TOGGL_API_KEY                Toggl Track API token\n` +
       `  TOGGL_CACHE_TTL              Metadata cache TTL in ms (default: 3600000)\n`
@@ -61,11 +65,11 @@ if (argv.includes('--help') || argv.includes('-h')) {
 
 config({ quiet: true });
 
-function loadConfig(): { apiToken: string; settings: ProjectSettings } {
+function loadConfig(): { apiToken: string; loaded: LoadedProjectSettings } {
   try {
     return {
       apiToken: loadCredentials(process.env).apiToken,
-      settings: loadProjectSettings(),
+      loaded: loadProjectSettings(),
     };
   } catch (error) {
     console.error(error instanceof CredentialsError ? error.message : String(error));
@@ -76,7 +80,10 @@ function loadConfig(): { apiToken: string; settings: ProjectSettings } {
   }
 }
 
-const { apiToken: API_KEY, settings } = loadConfig();
+const { apiToken: API_KEY, loaded } = loadConfig();
+const settings = loaded.settings;
+const settingsPath = loaded.path ?? projectSettingsPath();
+const hasSettingsFile = loaded.path !== undefined;
 const DEFAULT_WORKSPACE_ID = settings.workspaceId;
 const DEFAULT_PROJECT_ID = settings.projectId;
 const DEFAULT_BILLABLE = settings.billable;
@@ -93,25 +100,25 @@ const ENTRY_SCOPE_DEFAULTS = {
 };
 
 /**
- * Setup guidance travels with the server's instructions, which every MCP client
- * shows the model at connect time. That is what makes the first run guided
- * without the user editing any config: if the project is not configured yet,
- * the agent's first action is the authorization and project-picking flow.
+ * Setup is never automatic. An unconfigured repository keeps working for reads,
+ * but the agent must not configure Toggl on its own initiative: configuration
+ * associates someone's real tracking project with a repository, so it only
+ * happens when the user asks for it.
  */
 const INSTRUCTIONS = DEFAULT_PROJECT_ID
-  ? 'Toggl Track time tracking. Entries default to the configured project and workspace.'
+  ? 'Toggl Track time tracking. Timers use the configured project and workspace for this repository.'
   : [
-      'Toggl Track time tracking. This repository has no .yt-toggl-mcp.json yet, so no',
-      'project is associated with it and writes that need a project will fail.',
-      'On the first message, before anything else, run the toggl-setup skill:',
-      '1. call toggl_check_auth; if it fails, guide the user through creating',
-      '   ~/.yt-toggl-mcp/credentials.json or setting TOGGL_API_KEY, then retry;',
-      '2. call toggl_list_workspaces and toggl_list_projects;',
-      '3. ask which project this repository should be associated with;',
-      '4. write .yt-toggl-mcp.json in the repository root, add it to .gitignore, and',
-      '   confirm with toggl_get_current_entry. Do not start timers until it exists.',
+      'Toggl Track time tracking. This repository is NOT configured for Toggl: there is no',
+      '.yt-toggl-mcp.json, so timer writes fail with PROJECT_SETTINGS_MISSING and record nothing.',
+      'Reads still work. Do not configure it on your own initiative, and do not ask on the',
+      'first message or during unrelated work. Configure only when the user explicitly asks to',
+      'set up or configure Toggl for this project; then run the toggl-setup skill:',
+      '1. call toggl_check_auth, and guide authorization if the token is missing or rejected;',
+      '2. call toggl_list_workspaces and toggl_list_projects, and ask which project this',
+      '   repository should track against;',
+      '3. write .yt-toggl-mcp.json in the repository root and add it to .gitignore;',
+      '4. verify with toggl_get_configuration after the server restarts.',
     ].join('\n');
-
 const server = new McpServer(
   { name: 'yt-toggl-mcp', version: VERSION },
   { instructions: INSTRUCTIONS }
@@ -136,17 +143,19 @@ class ProjectSettingsMissingError extends Error {
 
   constructor() {
     super(
-      `No project was given and no project settings file is configured. Create ` +
-        `${projectSettingsPath()} in the project root, or pass project_id explicitly.`
+      `This repository is not configured for Toggl, so no timer was started and nothing was ` +
+        `recorded. No project settings file exists at ${projectSettingsPath()}. Ask the user ` +
+        'whether to configure Toggl for this project, then run the toggl-setup skill. To record a ' +
+        'one-off entry somewhere else, pass a verified project_id.'
     );
     this.name = 'ProjectSettingsMissingError';
   }
 }
 
 /**
- * Writes depend on the configured project: starting a timer without one silently
- * tracks against no project, which is exactly the mistake the project-scoped
- * settings file exists to prevent. Reads stay available without it.
+ * Timer writes depend on the configured project: an unconfigured repository has
+ * no project to track against, so it refuses rather than recording an entry
+ * that belongs to no project. Reads stay available without it.
  */
 function assertProjectDefault(scope: EntryScope): void {
   if (scope.projectId === undefined) throw new ProjectSettingsMissingError();
@@ -182,25 +191,39 @@ function fail(error: unknown): ToolResult {
     message: error instanceof Error ? error.message : 'Unknown error',
   };
 
+  // Every known failure is caused by the call itself, an unusable token, or the
+  // project settings file. Naming which one keeps a caller from retrying a bad
+  // argument or re-authorizing over a correct token.
+  if (error instanceof ConfiguredWorkspaceMismatchError) {
+    payload.code = error.code;
+    payload.category = 'invalid_argument';
+    payload.workspace_id = error.suppliedWorkspaceId;
+    payload.configured_workspace_id = error.configuredWorkspaceId;
+  }
   if (error instanceof TogglAPIError) {
     payload.code = error.code;
     payload.status = error.status;
+    payload.category = error.status === 401 || error.status === 403 ? 'authentication' : 'upstream';
     if (error.retryAfterSeconds !== undefined) payload.retry_after_seconds = error.retryAfterSeconds;
     if (error.quotaRemaining !== undefined) payload.quota_remaining = error.quotaRemaining;
     if (error.quotaResetsIn !== undefined) payload.quota_resets_in_seconds = error.quotaResetsIn;
   }
   if (error instanceof WorkspaceResolutionError) {
     payload.code = error.code;
+    payload.category = 'invalid_argument';
     // Belt-and-braces: workspace payloads carry a workspace api_token.
     payload.available_workspaces = publicWorkspaces(error.availableWorkspaces);
   }
   if (error instanceof WorkspaceValidationError) {
     payload.code = error.code;
+    payload.category = 'invalid_argument';
     payload.workspace_id = error.workspaceId;
     payload.available_workspaces = publicWorkspaces(error.availableWorkspaces);
   }
   if (error instanceof ProjectValidationError) {
     payload.code = error.code;
+    payload.category =
+      error.source === 'configuration' ? 'configuration' : 'invalid_argument';
     payload.project_id = error.projectId;
     payload.workspace_id = error.workspaceId;
     payload.available_projects = publicProjects(error.availableProjects);
@@ -264,6 +287,32 @@ server.registerTool(
   async () => {
     try {
       return ok(publicWorkspaces(await api.getWorkspaces()));
+    } catch (error) {
+      return fail(error);
+    }
+  }
+);
+
+server.registerTool(
+  'toggl_get_configuration',
+  {
+    title: 'Get effective configuration',
+    description:
+      'Read-only: the effective workspace, project, and billable default, each with its source ' +
+      '(configuration file, derived, or unset). Call this before passing workspace_id, project_id, ' +
+      'or billable. Timer operations are bound to the configured workspace when one is set: pass ' +
+      'no workspace_id rather than repeating or replacing it. Contains no credentials.',
+    inputSchema: {},
+  },
+  async () => {
+    try {
+      return ok({
+        ...(await describeConfiguration(api, settings, settingsPath, hasSettingsFile)),
+        billable_behavior:
+          'Pass billable: true for billable work. Omission uses the billable value above, but only ' +
+          'for entries in the configured project; an explicitly passed project_id never inherits it.',
+        settings_keys: ['workspaceId', 'projectId', 'billable'],
+      });
     } catch (error) {
       return fail(error);
     }
@@ -355,7 +404,7 @@ server.registerTool(
   {
     title: 'Create a time entry',
     description:
-      'Create a completed or running time entry. Provide stop (or duration) for a completed entry; omit both to start a running timer. project_id defaults to the configured project, and billable defaults to the configured project billable flag.',
+      'Create a completed or running time entry. Provide stop (or duration) for a completed entry; omit both to start a running timer. Omit workspace_id: timer operations use the configured workspace, and naming a different one is refused. project_id defaults to the configured project. Omit billable to use the configured default; pass true for billable work.',
     inputSchema: {
       description: z.string().optional(),
       project_id: z.number().int().positive().optional(),
@@ -400,7 +449,7 @@ server.registerTool(
   {
     title: 'Update a time entry',
     description:
-      'Edit an existing time entry (description, project, task, tags, billable, start, stop or duration). Only the fields you pass are changed; a zero duration is ignored unless a stop is also given.',
+      'Edit an existing time entry (description, project, task, tags, billable, start, stop or duration). Only the fields you pass are changed; a zero duration is ignored unless a stop is also given. Omit workspace_id: entries are found and verified without it.',
     inputSchema: {
       time_entry_id: timeEntryIdSchema,
       workspace_id: workspaceIdSchema,
@@ -427,7 +476,12 @@ server.registerTool(
     duration,
   }) => {
     try {
-      const resolved = await resolveWorkspaceForEntry(api, time_entry_id, workspace_id);
+      const resolved = await resolveWorkspaceForEntry(
+        api,
+        time_entry_id,
+        workspace_id,
+        DEFAULT_WORKSPACE_ID
+      );
       const verifiedProjectId = await resolveProjectId(api, resolved, project_id);
       const entry = await api.updateTimeEntry(resolved, time_entry_id, {
         description,
@@ -458,7 +512,12 @@ server.registerTool(
   },
   async ({ time_entry_id, workspace_id }) => {
     try {
-      const resolved = await resolveWorkspaceForEntry(api, time_entry_id, workspace_id);
+      const resolved = await resolveWorkspaceForEntry(
+        api,
+        time_entry_id,
+        workspace_id,
+        DEFAULT_WORKSPACE_ID
+      );
       await api.deleteTimeEntry(resolved, time_entry_id);
       return ok({ deleted: true, time_entry_id });
     } catch (error) {
@@ -472,7 +531,11 @@ server.registerTool(
   {
     title: 'Start timer',
     description:
-      'Start a new running time entry with an optional description, project, and tags. project_id defaults to the configured project, and billable defaults to the configured project billable flag. Use this to switch tasks; do not stop the running entry first unless the caller explicitly asked to stop tracking.',
+      'Start a new running time entry with an optional description, project, and tags. Omit ' +
+      'workspace_id: timer operations use the configured workspace, and naming a different one is ' +
+      'refused. project_id defaults to the configured project. Omit billable to use the configured ' +
+      'default; pass true for billable work. Use this to switch tasks; do not stop the running ' +
+      'entry first unless the caller explicitly asked to stop tracking.',
     inputSchema: {
       description: z.string().optional(),
       project_id: z.number().int().positive().optional(),
