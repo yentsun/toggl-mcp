@@ -271,8 +271,9 @@ export async function describeConfiguration(
   const project =
     settings.projectId === undefined
       ? unset<number>(
-          'No projectId configured, so timer writes fail with PROJECT_SETTINGS_MISSING unless ' +
-            'a verified project_id is passed.'
+          'No projectId configured. Starting or creating a timer then fails with ' +
+            'PROJECT_SETTINGS_MISSING unless a verified project_id is passed; stop, update, and ' +
+            'delete do not require a project.'
         )
       : fromConfiguration(
           settings.projectId,

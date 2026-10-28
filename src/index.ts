@@ -331,11 +331,12 @@ server.registerTool(
     description:
       'Read-only: the effective workspace, project, and billable default, each with its source ' +
       '(configuration file, derived, or unset), plus project_configured. project_configured is ' +
-      'false when no project is configured for this repository: timer writes then fail with ' +
-      'PROJECT_SETTINGS_MISSING unless you pass a verified project_id from toggl_list_projects. ' +
-      'A derived workspace serves reads but does not make writes possible. Timer operations are ' +
-      'bound to a configured workspace: pass no workspace_id rather than repeating or replacing ' +
-      'it. Contains no credentials.',
+      'false when no project is configured for this repository: starting or creating a timer then ' +
+      'fails with PROJECT_SETTINGS_MISSING unless you pass a verified project_id from ' +
+      'toggl_list_projects; stopping, updating, or deleting an entry does not require a project. ' +
+      'A derived workspace serves reads but does not make starting a timer possible. Timer ' +
+      'operations are bound to a configured workspace: pass no workspace_id rather than repeating ' +
+      'or replacing it. Contains no credentials.',
     inputSchema: {},
   },
   async () => {
