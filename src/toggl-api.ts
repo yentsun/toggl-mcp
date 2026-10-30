@@ -173,7 +173,6 @@ export class TogglAPI {
     if (startDate !== undefined) body.start_date = startDate;
     if (input.description !== undefined) body.description = input.description;
     if (input.project_id !== undefined) body.project_id = input.project_id;
-    if (input.task_id !== undefined) body.task_id = input.task_id;
     if (input.tags !== undefined) body.tags = input.tags;
     if (input.billable !== undefined) body.billable = input.billable;
     if (stop !== undefined) body.stop = stop;

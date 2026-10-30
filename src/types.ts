@@ -49,7 +49,6 @@ export interface TimeEntry {
 export interface TimeEntryWriteInput {
   description?: string;
   project_id?: number;
-  task_id?: number;
   tags?: string[];
   billable?: boolean;
   /** ISO 8601 start time. Defaults to now when omitted on create. */
