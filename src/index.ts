@@ -450,7 +450,6 @@ server.registerTool(
     inputSchema: {
       description: z.string().optional(),
       project_id: z.number().int().positive().optional(),
-      task_id: z.number().int().positive().optional(),
       workspace_id: workspaceIdSchema,
       tags: z.array(z.string()).optional(),
       billable: z.boolean().optional(),
@@ -459,7 +458,7 @@ server.registerTool(
       duration: z.number().int().optional(),
     },
   },
-  async ({ description, project_id, task_id, workspace_id, tags, billable, start, stop, duration }) => {
+  async ({ description, project_id, workspace_id, tags, billable, start, stop, duration }) => {
     try {
       const scope = await resolveEntryScope(
         api,
@@ -470,7 +469,6 @@ server.registerTool(
       const entry = await api.createTimeEntry(scope.workspaceId, {
         description,
         project_id: scope.projectId,
-        task_id,
         tags,
         // An explicit project_id means the caller chose the project, so the
         // configured billable default does not apply there.
@@ -491,13 +489,12 @@ server.registerTool(
   {
     title: 'Update a time entry',
     description:
-      'Edit an existing time entry (description, project, task, tags, billable, start, stop or duration). Only the fields you pass are changed; a zero duration is ignored unless a stop is also given. Omit workspace_id: entries are found and verified without it.',
+      'Edit an existing time entry (description, project, tags, billable, start, stop or duration). Send only the fields you intend to change: do not re-send values read back from toggl_get_time_entry or toggl_get_current_entry (project_id, tags, billable, start, stop, duration) unless you are changing them. A zero duration is ignored unless a stop is also given. Omit workspace_id: entries are found and verified without it.',
     inputSchema: {
       time_entry_id: timeEntryIdSchema,
       workspace_id: workspaceIdSchema,
       description: z.string().optional(),
       project_id: z.number().int().positive().optional(),
-      task_id: z.number().int().positive().optional(),
       tags: z.array(z.string()).optional(),
       billable: z.boolean().optional(),
       start: z.string().optional(),
@@ -510,7 +507,6 @@ server.registerTool(
     workspace_id,
     description,
     project_id,
-    task_id,
     tags,
     billable,
     start,
@@ -528,7 +524,6 @@ server.registerTool(
       const entry = await api.updateTimeEntry(resolved, time_entry_id, {
         description,
         project_id: verifiedProjectId,
-        task_id,
         tags,
         billable,
         start,

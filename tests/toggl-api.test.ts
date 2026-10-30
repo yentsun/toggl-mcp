@@ -137,7 +137,6 @@ describe('TogglAPI', () => {
     await api.updateTimeEntry(5, 7, {
       description: 'renamed',
       project_id: 3,
-      task_id: 1,
       billable: true,
       start: '',
       stop: '',
@@ -152,7 +151,6 @@ describe('TogglAPI', () => {
       workspace_id: 5,
       description: 'renamed',
       project_id: 3,
-      task_id: 1,
       billable: true,
     });
   });
